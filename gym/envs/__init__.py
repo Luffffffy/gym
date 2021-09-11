@@ -1,52 +1,5 @@
 from gym.envs.registration import registry, register, make, spec
 
-# Algorithmic
-# ----------------------------------------
-
-register(
-    id="Copy-v0",
-    entry_point="gym.envs.algorithmic:CopyEnv",
-    max_episode_steps=200,
-    reward_threshold=25.0,
-)
-
-register(
-    id="RepeatCopy-v0",
-    entry_point="gym.envs.algorithmic:RepeatCopyEnv",
-    max_episode_steps=200,
-    reward_threshold=75.0,
-)
-
-register(
-    id="ReversedAddition-v0",
-    entry_point="gym.envs.algorithmic:ReversedAdditionEnv",
-    kwargs={"rows": 2},
-    max_episode_steps=200,
-    reward_threshold=25.0,
-)
-
-register(
-    id="ReversedAddition3-v0",
-    entry_point="gym.envs.algorithmic:ReversedAdditionEnv",
-    kwargs={"rows": 3},
-    max_episode_steps=200,
-    reward_threshold=25.0,
-)
-
-register(
-    id="DuplicatedInput-v0",
-    entry_point="gym.envs.algorithmic:DuplicatedInputEnv",
-    max_episode_steps=200,
-    reward_threshold=9.0,
-)
-
-register(
-    id="Reverse-v0",
-    entry_point="gym.envs.algorithmic:ReverseEnv",
-    max_episode_steps=200,
-    reward_threshold=25.0,
-)
-
 # Classic
 # ----------------------------------------
 
@@ -133,18 +86,9 @@ register(
 # ----------------------------------------
 
 register(
-    id="Blackjack-v0",
+    id="Blackjack-v1",
     entry_point="gym.envs.toy_text:BlackjackEnv",
-)
-
-register(
-    id="KellyCoinflip-v0",
-    entry_point="gym.envs.toy_text:KellyCoinflipEnv",
-    reward_threshold=246.61,
-)
-register(
-    id="KellyCoinflipGeneralized-v0",
-    entry_point="gym.envs.toy_text:KellyCoinflipGeneralizedEnv",
+    kwargs={"sab": True, "natural": False},
 )
 
 register(
@@ -169,33 +113,9 @@ register(
 )
 
 register(
-    id="NChain-v0",
-    entry_point="gym.envs.toy_text:NChainEnv",
-    max_episode_steps=1000,
-)
-
-register(
-    id="Roulette-v0",
-    entry_point="gym.envs.toy_text:RouletteEnv",
-    max_episode_steps=100,
-)
-
-register(
     id="Taxi-v3",
     entry_point="gym.envs.toy_text:TaxiEnv",
     reward_threshold=8,  # optimum = 8.46
-    max_episode_steps=200,
-)
-
-register(
-    id="GuessingGame-v0",
-    entry_point="gym.envs.toy_text:GuessingGame",
-    max_episode_steps=200,
-)
-
-register(
-    id="HotterColder-v0",
-    entry_point="gym.envs.toy_text:HotterColder",
     max_episode_steps=200,
 )
 
