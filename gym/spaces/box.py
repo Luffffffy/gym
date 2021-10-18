@@ -1,5 +1,4 @@
 import numpy as np
-import warnings
 
 from .space import Space
 from gym import logger
@@ -23,7 +22,7 @@ class Box(Space):
 
     """
 
-    def __init__(self, low, high, shape=None, dtype=np.float32):
+    def __init__(self, low, high, shape=None, dtype=np.float32, seed=None):
         assert dtype is not None, "dtype must be explicitly provided. "
         self.dtype = np.dtype(dtype)
 
@@ -57,7 +56,7 @@ class Box(Space):
         if np.isscalar(high):
             high = np.full(shape, high, dtype=dtype)
 
-        self.shape = shape
+        self._shape = shape
         self.low = low
         self.high = high
 
@@ -81,7 +80,7 @@ class Box(Space):
         self.bounded_below = -np.inf < self.low
         self.bounded_above = np.inf > self.high
 
-        super(Box, self).__init__(self.shape, self.dtype)
+        super(Box, self).__init__(self.shape, self.dtype, seed)
 
     def is_bounded(self, manner="both"):
         below = np.all(self.bounded_below)
@@ -140,7 +139,7 @@ class Box(Space):
 
     def contains(self, x):
         if not isinstance(x, np.ndarray):
-            warnings.warn("Casting input x to numpy array.")
+            logger.warn("Casting input x to numpy array.")
             x = np.asarray(x, dtype=self.dtype)
 
         return (
