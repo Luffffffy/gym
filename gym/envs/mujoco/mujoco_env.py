@@ -1,6 +1,6 @@
 from collections import OrderedDict
 import os
-
+from typing import Optional
 
 from gym import error, spaces
 from gym.utils import seeding
@@ -49,7 +49,7 @@ class MujocoEnv(gym.Env):
         else:
             fullpath = os.path.join(os.path.dirname(__file__), "assets", model_path)
         if not path.exists(fullpath):
-            raise IOError("File %s does not exist" % fullpath)
+            raise OSError(f"File {fullpath} does not exist")
         self.frame_skip = frame_skip
         self.model = mujoco_py.load_model_from_path(fullpath)
         self.sim = mujoco_py.MjSim(self.model)
@@ -73,8 +73,6 @@ class MujocoEnv(gym.Env):
 
         self._set_observation_space(observation)
 
-        self.seed()
-
     def _set_action_space(self):
         bounds = self.model.actuator_ctrlrange.copy().astype(np.float32)
         low, high = bounds.T
@@ -84,10 +82,6 @@ class MujocoEnv(gym.Env):
     def _set_observation_space(self, observation):
         self.observation_space = convert_observation_to_space(observation)
         return self.observation_space
-
-    def seed(self, seed=None):
-        self.np_random, seed = seeding.np_random(seed)
-        return [seed]
 
     # methods to override:
     # ----------------------------
@@ -109,7 +103,8 @@ class MujocoEnv(gym.Env):
 
     # -----------------------------
 
-    def reset(self):
+    def reset(self, *, seed: Optional[int] = None, options: Optional[dict] = None):
+        super().reset(seed=seed)
         self.sim.reset()
         ob = self.reset_model()
         return ob
@@ -128,6 +123,9 @@ class MujocoEnv(gym.Env):
         return self.model.opt.timestep * self.frame_skip
 
     def do_simulation(self, ctrl, n_frames):
+        if np.array(ctrl).shape != self.action_space.shape:
+            raise ValueError("Action dimension mismatch")
+
         self.sim.data.ctrl[:] = ctrl
         for _ in range(n_frames):
             self.sim.step()

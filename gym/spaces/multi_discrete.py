@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 import numpy as np
 from gym import logger
 from .space import Space
@@ -29,18 +30,16 @@ class MultiDiscrete(Space):
         """
         nvec: vector of counts of each categorical variable
         """
-        assert (np.array(nvec) > 0).all(), "nvec (counts) have to be positive"
-        self.nvec = np.asarray(nvec, dtype=dtype)
+        self.nvec = np.array(nvec, dtype=dtype, copy=True)
+        assert (self.nvec > 0).all(), "nvec (counts) have to be positive"
 
-        super(MultiDiscrete, self).__init__(self.nvec.shape, dtype, seed)
+        super().__init__(self.nvec.shape, dtype, seed)
 
     def sample(self):
-        return (self.np_random.random_sample(self.nvec.shape) * self.nvec).astype(
-            self.dtype
-        )
+        return (self.np_random.random(self.nvec.shape) * self.nvec).astype(self.dtype)
 
     def contains(self, x):
-        if isinstance(x, list):
+        if isinstance(x, Sequence):
             x = np.array(x)  # Promote list to array for contains check
         # if nvec is uint32 and space dtype is uint32, then 0 <= x < self.nvec guarantees that x
         # is within correct bounds for space dtype (even though x does not have to be unsigned)
@@ -53,7 +52,7 @@ class MultiDiscrete(Space):
         return np.array(sample_n)
 
     def __repr__(self):
-        return "MultiDiscrete({})".format(self.nvec)
+        return f"MultiDiscrete({self.nvec})"
 
     def __getitem__(self, index):
         nvec = self.nvec[index]
@@ -61,7 +60,7 @@ class MultiDiscrete(Space):
             subspace = Discrete(nvec)
         else:
             subspace = MultiDiscrete(nvec, self.dtype)
-        subspace.np_random.set_state(self.np_random.get_state())  # for reproducibility
+        subspace.np_random.bit_generator.state = self.np_random.bit_generator.state
         return subspace
 
     def __len__(self):

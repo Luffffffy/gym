@@ -5,6 +5,8 @@ permalink: https://perma.cc/C9ZM-652R
 """
 
 import math
+from typing import Optional
+
 import gym
 from gym import spaces, logger
 from gym.utils import seeding
@@ -26,9 +28,9 @@ class CartPoleEnv(gym.Env):
     Observation:
         Type: Box(4)
         Num     Observation               Min                     Max
-        0       Cart Position             -4.8                    4.8
+        0       Cart Position             -2.4                    2.4
         1       Cart Velocity             -Inf                    Inf
-        2       Pole Angle                -0.418 rad (-24 deg)    0.418 rad (24 deg)
+        2       Pole Angle                -0.209 rad (-12 deg)    0.209 rad (12 deg)
         3       Pole Angular Velocity     -Inf                    Inf
 
     Actions:
@@ -90,18 +92,13 @@ class CartPoleEnv(gym.Env):
         self.action_space = spaces.Discrete(2)
         self.observation_space = spaces.Box(-high, high, dtype=np.float32)
 
-        self.seed()
         self.viewer = None
         self.state = None
 
         self.steps_beyond_done = None
 
-    def seed(self, seed=None):
-        self.np_random, seed = seeding.np_random(seed)
-        return [seed]
-
     def step(self, action):
-        err_msg = "%r (%s) invalid" % (action, type(action))
+        err_msg = f"{action!r} ({type(action)}) invalid"
         assert self.action_space.contains(action), err_msg
 
         x, x_dot, theta, theta_dot = self.state
@@ -158,7 +155,8 @@ class CartPoleEnv(gym.Env):
 
         return np.array(self.state, dtype=np.float32), reward, done, {}
 
-    def reset(self):
+    def reset(self, *, seed: Optional[int] = None, options: Optional[dict] = None):
+        super().reset(seed=seed)
         self.state = self.np_random.uniform(low=-0.05, high=0.05, size=(4,))
         self.steps_beyond_done = None
         return np.array(self.state, dtype=np.float32)
@@ -176,13 +174,13 @@ class CartPoleEnv(gym.Env):
         cartheight = 30.0
 
         if self.viewer is None:
-            from gym.envs.classic_control import rendering
+            from gym.utils import pyglet_rendering
 
-            self.viewer = rendering.Viewer(screen_width, screen_height)
+            self.viewer = pyglet_rendering.Viewer(screen_width, screen_height)
             l, r, t, b = -cartwidth / 2, cartwidth / 2, cartheight / 2, -cartheight / 2
             axleoffset = cartheight / 4.0
-            cart = rendering.FilledPolygon([(l, b), (l, t), (r, t), (r, b)])
-            self.carttrans = rendering.Transform()
+            cart = pyglet_rendering.FilledPolygon([(l, b), (l, t), (r, t), (r, b)])
+            self.carttrans = pyglet_rendering.Transform()
             cart.add_attr(self.carttrans)
             self.viewer.add_geom(cart)
             l, r, t, b = (
@@ -191,18 +189,18 @@ class CartPoleEnv(gym.Env):
                 polelen - polewidth / 2,
                 -polewidth / 2,
             )
-            pole = rendering.FilledPolygon([(l, b), (l, t), (r, t), (r, b)])
+            pole = pyglet_rendering.FilledPolygon([(l, b), (l, t), (r, t), (r, b)])
             pole.set_color(0.8, 0.6, 0.4)
-            self.poletrans = rendering.Transform(translation=(0, axleoffset))
+            self.poletrans = pyglet_rendering.Transform(translation=(0, axleoffset))
             pole.add_attr(self.poletrans)
             pole.add_attr(self.carttrans)
             self.viewer.add_geom(pole)
-            self.axle = rendering.make_circle(polewidth / 2)
+            self.axle = pyglet_rendering.make_circle(polewidth / 2)
             self.axle.add_attr(self.poletrans)
             self.axle.add_attr(self.carttrans)
             self.axle.set_color(0.5, 0.5, 0.8)
             self.viewer.add_geom(self.axle)
-            self.track = rendering.Line((0, carty), (screen_width, carty))
+            self.track = pyglet_rendering.Line((0, carty), (screen_width, carty))
             self.track.set_color(0, 0, 0)
             self.viewer.add_geom(self.track)
 

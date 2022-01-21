@@ -28,6 +28,8 @@ Created by Oleg Klimov. Licensed on the same terms as the rest of OpenAI Gym.
 
 import math
 import sys
+from typing import Optional
+
 import numpy as np
 
 import Box2D
@@ -41,7 +43,7 @@ from Box2D.b2 import (
 )
 
 import gym
-from gym import spaces
+from gym import error, spaces
 from gym.utils import seeding, EzPickle
 
 FPS = 50
@@ -89,11 +91,8 @@ class ContactDetector(contactListener):
 class LunarLander(gym.Env, EzPickle):
     metadata = {"render.modes": ["human", "rgb_array"], "video.frames_per_second": FPS}
 
-    continuous = False
-
-    def __init__(self):
+    def __init__(self, continuous: bool = False):
         EzPickle.__init__(self)
-        self.seed()
         self.viewer = None
 
         self.world = Box2D.b2World()
@@ -102,6 +101,8 @@ class LunarLander(gym.Env, EzPickle):
         self.particles = []
 
         self.prev_reward = None
+
+        self.continuous = continuous
 
         # useful range is -1 .. +1, but spikes can be higher
         self.observation_space = spaces.Box(
@@ -117,10 +118,6 @@ class LunarLander(gym.Env, EzPickle):
             # Nop, fire left engine, main engine, right engine
             self.action_space = spaces.Discrete(4)
 
-    def seed(self, seed=None):
-        self.np_random, seed = seeding.np_random(seed)
-        return [seed]
-
     def _destroy(self):
         if not self.moon:
             return
@@ -133,7 +130,8 @@ class LunarLander(gym.Env, EzPickle):
         self.world.DestroyBody(self.legs[0])
         self.world.DestroyBody(self.legs[1])
 
-    def reset(self):
+    def reset(self, *, seed: Optional[int] = None, options: Optional[dict] = None):
+        super().reset(seed=seed)
         self._destroy()
         self.world.contactListener_keepref = ContactDetector(self)
         self.world.contactListener = self.world.contactListener_keepref
@@ -265,10 +263,9 @@ class LunarLander(gym.Env, EzPickle):
         if self.continuous:
             action = np.clip(action, -1, +1).astype(np.float32)
         else:
-            assert self.action_space.contains(action), "%r (%s) invalid " % (
-                action,
-                type(action),
-            )
+            assert self.action_space.contains(
+                action
+            ), f"{action!r} ({type(action)}) invalid "
 
         # Engines
         tip = (math.sin(self.lander.angle), math.cos(self.lander.angle))
@@ -385,10 +382,10 @@ class LunarLander(gym.Env, EzPickle):
         return np.array(state, dtype=np.float32), reward, done, {}
 
     def render(self, mode="human"):
-        from gym.envs.classic_control import rendering
+        from gym.utils import pyglet_rendering
 
         if self.viewer is None:
-            self.viewer = rendering.Viewer(VIEWPORT_W, VIEWPORT_H)
+            self.viewer = pyglet_rendering.Viewer(VIEWPORT_W, VIEWPORT_H)
             self.viewer.set_bounds(0, VIEWPORT_W / SCALE, 0, VIEWPORT_H / SCALE)
 
         for obj in self.particles:
@@ -413,7 +410,7 @@ class LunarLander(gym.Env, EzPickle):
             for f in obj.fixtures:
                 trans = f.body.transform
                 if type(f.shape) is circleShape:
-                    t = rendering.Transform(translation=trans * f.shape.pos)
+                    t = pyglet_rendering.Transform(translation=trans * f.shape.pos)
                     self.viewer.draw_circle(
                         f.shape.radius, 20, color=obj.color1
                     ).add_attr(t)
@@ -445,10 +442,6 @@ class LunarLander(gym.Env, EzPickle):
         if self.viewer is not None:
             self.viewer.close()
             self.viewer = None
-
-
-class LunarLanderContinuous(LunarLander):
-    continuous = True
 
 
 def heuristic(env, s):
@@ -505,10 +498,9 @@ def heuristic(env, s):
 
 
 def demo_heuristic_lander(env, seed=None, render=False):
-    env.seed(seed)
     total_reward = 0
     steps = 0
-    s = env.reset()
+    s = env.reset(seed=seed)
     while True:
         a = heuristic(env, s)
         s, r, done, info = env.step(a)
@@ -520,14 +512,24 @@ def demo_heuristic_lander(env, seed=None, render=False):
                 break
 
         if steps % 20 == 0 or done:
-            print("observations:", " ".join(["{:+0.2f}".format(x) for x in s]))
-            print("step {} total_reward {:+0.2f}".format(steps, total_reward))
+            print("observations:", " ".join([f"{x:+0.2f}" for x in s]))
+            print(f"step {steps} total_reward {total_reward:+0.2f}")
         steps += 1
         if done:
             break
     if render:
         env.close()
     return total_reward
+
+
+class LunarLanderContinuous:
+    def __init__(self):
+        raise error.Error(
+            "Error initializing LunarLanderContinuous Environment.\n"
+            "Currently, we do not support initializing this mode of environment by calling the class directly.\n"
+            "To use this environment, instead create it by specifying the continuous keyword in gym.make, i.e.\n"
+            'gym.make("LunarLander-v2", continuous=True)'
+        )
 
 
 if __name__ == "__main__":

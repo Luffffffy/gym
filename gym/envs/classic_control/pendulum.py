@@ -1,3 +1,5 @@
+from typing import Optional
+
 import gym
 from gym import spaces
 from gym.utils import seeding
@@ -6,6 +8,7 @@ from os import path
 
 
 class PendulumEnv(gym.Env):
+
     metadata = {"render.modes": ["human", "rgb_array"], "video.frames_per_second": 30}
 
     def __init__(self, g=10.0):
@@ -22,12 +25,6 @@ class PendulumEnv(gym.Env):
             low=-self.max_torque, high=self.max_torque, shape=(1,), dtype=np.float32
         )
         self.observation_space = spaces.Box(low=-high, high=high, dtype=np.float32)
-
-        self.seed()
-
-    def seed(self, seed=None):
-        self.np_random, seed = seeding.np_random(seed)
-        return [seed]
 
     def step(self, u):
         th, thdot = self.state  # th := theta
@@ -48,7 +45,8 @@ class PendulumEnv(gym.Env):
         self.state = np.array([newth, newthdot])
         return self._get_obs(), -costs, False, {}
 
-    def reset(self):
+    def reset(self, *, seed: Optional[int] = None, options: Optional[dict] = None):
+        super().reset(seed=seed)
         high = np.array([np.pi, 1])
         self.state = self.np_random.uniform(low=-high, high=high)
         self.last_u = None
@@ -60,21 +58,21 @@ class PendulumEnv(gym.Env):
 
     def render(self, mode="human"):
         if self.viewer is None:
-            from gym.envs.classic_control import rendering
+            from gym.utils import pyglet_rendering
 
-            self.viewer = rendering.Viewer(500, 500)
+            self.viewer = pyglet_rendering.Viewer(500, 500)
             self.viewer.set_bounds(-2.2, 2.2, -2.2, 2.2)
-            rod = rendering.make_capsule(1, 0.2)
+            rod = pyglet_rendering.make_capsule(1, 0.2)
             rod.set_color(0.8, 0.3, 0.3)
-            self.pole_transform = rendering.Transform()
+            self.pole_transform = pyglet_rendering.Transform()
             rod.add_attr(self.pole_transform)
             self.viewer.add_geom(rod)
-            axle = rendering.make_circle(0.05)
+            axle = pyglet_rendering.make_circle(0.05)
             axle.set_color(0, 0, 0)
             self.viewer.add_geom(axle)
             fname = path.join(path.dirname(__file__), "assets/clockwise.png")
-            self.img = rendering.Image(fname, 1.0, 1.0)
-            self.imgtrans = rendering.Transform()
+            self.img = pyglet_rendering.Image(fname, 1.0, 1.0)
+            self.imgtrans = pyglet_rendering.Transform()
             self.img.add_attr(self.imgtrans)
 
         self.viewer.add_onetime(self.img)

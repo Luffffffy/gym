@@ -1,5 +1,6 @@
 import sys
 import math
+from typing import Optional
 
 import numpy as np
 import Box2D
@@ -13,7 +14,7 @@ from Box2D.b2 import (
 )
 
 import gym
-from gym import spaces
+from gym import error, spaces
 from gym.utils import colorize, seeding, EzPickle
 
 # This is simple 4-joints walker robot environment.
@@ -118,11 +119,8 @@ class ContactDetector(contactListener):
 class BipedalWalker(gym.Env, EzPickle):
     metadata = {"render.modes": ["human", "rgb_array"], "video.frames_per_second": FPS}
 
-    hardcore = False
-
-    def __init__(self):
+    def __init__(self, hardcore: bool = False):
         EzPickle.__init__(self)
-        self.seed()
         self.viewer = None
 
         self.world = Box2D.b2World()
@@ -130,6 +128,8 @@ class BipedalWalker(gym.Env, EzPickle):
         self.hull = None
 
         self.prev_shaping = None
+
+        self.hardcore = hardcore
 
         self.fd_polygon = fixtureDef(
             shape=polygonShape(vertices=[(0, 0), (1, 0), (1, -1), (0, -1)]),
@@ -148,10 +148,6 @@ class BipedalWalker(gym.Env, EzPickle):
             np.array([1, 1, 1, 1]).astype(np.float32),
         )
         self.observation_space = spaces.Box(-high, high)
-
-    def seed(self, seed=None):
-        self.np_random, seed = seeding.np_random(seed)
-        return [seed]
 
     def _destroy(self):
         if not self.terrain:
@@ -188,7 +184,7 @@ class BipedalWalker(gym.Env, EzPickle):
                 y += velocity
 
             elif state == PIT and oneshot:
-                counter = self.np_random.randint(3, 5)
+                counter = self.np_random.integers(3, 5)
                 poly = [
                     (x, y),
                     (x + TERRAIN_STEP, y),
@@ -215,7 +211,7 @@ class BipedalWalker(gym.Env, EzPickle):
                     y -= 4 * TERRAIN_STEP
 
             elif state == STUMP and oneshot:
-                counter = self.np_random.randint(1, 3)
+                counter = self.np_random.integers(1, 3)
                 poly = [
                     (x, y),
                     (x + counter * TERRAIN_STEP, y),
@@ -228,9 +224,9 @@ class BipedalWalker(gym.Env, EzPickle):
                 self.terrain.append(t)
 
             elif state == STAIRS and oneshot:
-                stair_height = +1 if self.np_random.rand() > 0.5 else -1
-                stair_width = self.np_random.randint(4, 5)
-                stair_steps = self.np_random.randint(3, 5)
+                stair_height = +1 if self.np_random.random() > 0.5 else -1
+                stair_width = self.np_random.integers(4, 5)
+                stair_steps = self.np_random.integers(3, 5)
                 original_y = y
                 for s in range(stair_steps):
                     poly = [
@@ -266,9 +262,9 @@ class BipedalWalker(gym.Env, EzPickle):
             self.terrain_y.append(y)
             counter -= 1
             if counter == 0:
-                counter = self.np_random.randint(TERRAIN_GRASS / 2, TERRAIN_GRASS)
+                counter = self.np_random.integers(TERRAIN_GRASS / 2, TERRAIN_GRASS)
                 if state == GRASS and hardcore:
-                    state = self.np_random.randint(1, _STATES_)
+                    state = self.np_random.integers(1, _STATES_)
                     oneshot = True
                 else:
                     state = GRASS
@@ -308,11 +304,12 @@ class BipedalWalker(gym.Env, EzPickle):
                 )
                 for a in range(5)
             ]
-            x1 = min([p[0] for p in poly])
-            x2 = max([p[0] for p in poly])
+            x1 = min(p[0] for p in poly)
+            x2 = max(p[0] for p in poly)
             self.cloud_poly.append((poly, x1, x2))
 
-    def reset(self):
+    def reset(self, *, seed: Optional[int] = None, options: Optional[dict] = None):
+        super().reset(seed=seed)
         self._destroy()
         self.world.contactListener_bug_workaround = ContactDetector(self)
         self.world.contactListener = self.world.contactListener_bug_workaround
@@ -488,10 +485,10 @@ class BipedalWalker(gym.Env, EzPickle):
         return np.array(state, dtype=np.float32), reward, done, {}
 
     def render(self, mode="human"):
-        from gym.envs.classic_control import rendering
+        from gym.utils import pyglet_rendering
 
         if self.viewer is None:
-            self.viewer = rendering.Viewer(VIEWPORT_W, VIEWPORT_H)
+            self.viewer = pyglet_rendering.Viewer(VIEWPORT_W, VIEWPORT_H)
         self.viewer.set_bounds(
             self.scroll, VIEWPORT_W / SCALE + self.scroll, 0, VIEWPORT_H / SCALE
         )
@@ -534,7 +531,7 @@ class BipedalWalker(gym.Env, EzPickle):
             for f in obj.fixtures:
                 trans = f.body.transform
                 if type(f.shape) is circleShape:
-                    t = rendering.Transform(translation=trans * f.shape.pos)
+                    t = pyglet_rendering.Transform(translation=trans * f.shape.pos)
                     self.viewer.draw_circle(
                         f.shape.radius, 30, color=obj.color1
                     ).add_attr(t)
@@ -569,8 +566,14 @@ class BipedalWalker(gym.Env, EzPickle):
             self.viewer = None
 
 
-class BipedalWalkerHardcore(BipedalWalker):
-    hardcore = True
+class BipedalWalkerHardcore:
+    def __init__(self):
+        raise error.Error(
+            "Error initializing BipedalWalkerHardcore Environment.\n"
+            "Currently, we do not support initializing this mode of environment by calling the class directly.\n"
+            "To use this environment, instead create it by specifying the hardcore keyword in gym.make, i.e.\n"
+            'gym.make("BipedalWalker-v3", hardcore=True)'
+        )
 
 
 if __name__ == "__main__":
@@ -591,11 +594,11 @@ if __name__ == "__main__":
         s, r, done, info = env.step(a)
         total_reward += r
         if steps % 20 == 0 or done:
-            print("\naction " + str(["{:+0.2f}".format(x) for x in a]))
-            print("step {} total_reward {:+0.2f}".format(steps, total_reward))
-            print("hull " + str(["{:+0.2f}".format(x) for x in s[0:4]]))
-            print("leg0 " + str(["{:+0.2f}".format(x) for x in s[4:9]]))
-            print("leg1 " + str(["{:+0.2f}".format(x) for x in s[9:14]]))
+            print("\naction " + str([f"{x:+0.2f}" for x in a]))
+            print(f"step {steps} total_reward {total_reward:+0.2f}")
+            print("hull " + str([f"{x:+0.2f}" for x in s[0:4]]))
+            print("leg0 " + str([f"{x:+0.2f}" for x in s[4:9]]))
+            print("leg1 " + str([f"{x:+0.2f}" for x in s[9:14]]))
         steps += 1
 
         contact0 = s[8]

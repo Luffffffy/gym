@@ -11,12 +11,13 @@ class Tuple(Space):
     """
 
     def __init__(self, spaces, seed=None):
+        spaces = tuple(spaces)
         self.spaces = spaces
         for space in spaces:
             assert isinstance(
                 space, Space
             ), "Elements of the tuple must be instances of gym.Space"
-        super(Tuple, self).__init__(None, None, seed)
+        super().__init__(None, None, seed)
 
     def seed(self, seed=None):
         seeds = []
@@ -50,11 +51,11 @@ class Tuple(Space):
         return seeds
 
     def sample(self):
-        return tuple([space.sample() for space in self.spaces])
+        return tuple(space.sample() for space in self.spaces)
 
     def contains(self, x):
-        if isinstance(x, list):
-            x = tuple(x)  # Promote list to tuple for contains check
+        if isinstance(x, (list, np.ndarray)):
+            x = tuple(x)  # Promote list and ndarray to tuple for contains check
         return (
             isinstance(x, tuple)
             and len(x) == len(self.spaces)

@@ -32,6 +32,8 @@ Created by Oleg Klimov. Licensed on the same terms as the rest of OpenAI Gym.
 """
 import sys
 import math
+from typing import Optional
+
 import numpy as np
 
 import Box2D
@@ -121,7 +123,6 @@ class CarRacing(gym.Env, EzPickle):
 
     def __init__(self, verbose=1):
         EzPickle.__init__(self)
-        self.seed()
         self.contactListener_keepref = FrictionDetector(self)
         self.world = Box2D.b2World((0, 0), contactListener=self.contactListener_keepref)
         self.viewer = None
@@ -144,10 +145,6 @@ class CarRacing(gym.Env, EzPickle):
         self.observation_space = spaces.Box(
             low=0, high=255, shape=(STATE_H, STATE_W, 3), dtype=np.uint8
         )
-
-    def seed(self, seed=None):
-        self.np_random, seed = seeding.np_random(seed)
-        return [seed]
 
     def _destroy(self):
         if not self.road:
@@ -343,7 +340,8 @@ class CarRacing(gym.Env, EzPickle):
         self.track = track
         return True
 
-    def reset(self):
+    def reset(self, *, seed: Optional[int] = None, options: Optional[dict] = None):
+        super().reset(seed=seed)
         self._destroy()
         self.reward = 0.0
         self.prev_reward = 0.0
@@ -397,9 +395,9 @@ class CarRacing(gym.Env, EzPickle):
     def render(self, mode="human"):
         assert mode in ["human", "state_pixels", "rgb_array"]
         if self.viewer is None:
-            from gym.envs.classic_control import rendering
+            from gym.utils import pyglet_rendering
 
-            self.viewer = rendering.Viewer(WINDOW_W, WINDOW_H)
+            self.viewer = pyglet_rendering.Viewer(WINDOW_W, WINDOW_H)
             self.score_label = pyglet.text.Label(
                 "0000",
                 font_size=36,
@@ -409,7 +407,7 @@ class CarRacing(gym.Env, EzPickle):
                 anchor_y="center",
                 color=(255, 255, 255, 255),
             )
-            self.transform = rendering.Transform()
+            self.transform = pyglet_rendering.Transform()
 
         if "t" not in self.__dict__:
             return  # reset() not called yet
@@ -643,8 +641,8 @@ if __name__ == "__main__":
             s, r, done, info = env.step(a)
             total_reward += r
             if steps % 200 == 0 or done:
-                print("\naction " + str(["{:+0.2f}".format(x) for x in a]))
-                print("step {} total_reward {:+0.2f}".format(steps, total_reward))
+                print("\naction " + str([f"{x:+0.2f}" for x in a]))
+                print(f"step {steps} total_reward {total_reward:+0.2f}")
             steps += 1
             isopen = env.render()
             if done or restart or isopen == False:

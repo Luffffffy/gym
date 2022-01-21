@@ -2,7 +2,7 @@
 
 Gym is an open source Python library for developing and comparing reinforcement learning algorithms by providing a standard API to communicate between learning algorithms and environments, as well as a standard set of environments compliant with that API. Since its release, Gym's API has become the field standard for doing this.
 
-Gym currently has two pieces of documentation: the [documentation website](http://gym.openai.com) and the [FAQ](https://github.com/openai/gym/wiki/FAQ). A new and more comprehensive documentation website is in the works.
+Gym currently has two pieces of documentation: the [documentation website](http://gym.openai.com) and the [FAQ](https://github.com/openai/gym/wiki/FAQ).
 
 ## Installation
 
@@ -10,7 +10,7 @@ To install the base Gym library, use `pip install gym`.
 
 This does not include dependencies for all families of environments (there's a massive number, and some can be problematic to install on certain systems). You can install these dependencies for one family like `pip install gym[atari]` or use `pip install gym[all]` to install all dependencies.
 
-We support Python 3.7, 3.8 and 3.9 on Linux and macOS. We will accept PRs related to Windows, but do not officially support it.
+We support Python 3.7, 3.8, 3.9 and 3.10 on Linux and macOS. We will accept PRs related to Windows, but do not officially support it.
 
 ## API
 
@@ -22,10 +22,10 @@ env = gym.make('CartPole-v1')
 
 # env is created, now we can use it: 
 for episode in range(10): 
-    obs = env.reset()
+    observation = env.reset()
     for step in range(50):
         action = env.action_space.sample()  # or given a custom model, action = policy(observation)
-        nobs, reward, done, info = env.step(action)
+        observation, reward, done, info = env.step(action)
 ```
 
 ## Notable Related Libraries
@@ -41,7 +41,7 @@ Gym keeps strict versioning for reproducibility reasons. All environments end in
 
 ## Citation
 
-A whitepaper from when OpenAI Gym just came out is available https://arxiv.org/pdf/1606.01540, and can be cited with the following bibtex entry:
+A whitepaper from when Gym just came out is available https://arxiv.org/pdf/1606.01540, and can be cited with the following bibtex entry:
 
 ```
 @misc{1606.01540,

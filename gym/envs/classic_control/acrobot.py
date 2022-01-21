@@ -1,4 +1,6 @@
 """classic Acrobot task"""
+from typing import Optional
+
 import numpy as np
 from numpy import sin, cos, pi
 
@@ -57,8 +59,7 @@ class AcrobotEnv(core.Env):
     .. warning::
         This version of the domain uses the Runge-Kutta method for integrating
         the system dynamics and is more realistic, but also considerably harder
-        than the original version which employs Euler integration,
-        see the AcrobotLegacy class.
+        than the original version which employs Euler integration.
     """
 
     metadata = {"render.modes": ["human", "rgb_array"], "video.frames_per_second": 15}
@@ -95,13 +96,9 @@ class AcrobotEnv(core.Env):
         self.observation_space = spaces.Box(low=low, high=high, dtype=np.float32)
         self.action_space = spaces.Discrete(3)
         self.state = None
-        self.seed()
 
-    def seed(self, seed=None):
-        self.np_random, seed = seeding.np_random(seed)
-        return [seed]
-
-    def reset(self):
+    def reset(self, *, seed: Optional[int] = None, options: Optional[dict] = None):
+        super().reset(seed=seed)
         self.state = self.np_random.uniform(low=-0.1, high=0.1, size=(4,)).astype(
             np.float32
         )
@@ -185,12 +182,12 @@ class AcrobotEnv(core.Env):
         return (dtheta1, dtheta2, ddtheta1, ddtheta2, 0.0)
 
     def render(self, mode="human"):
-        from gym.envs.classic_control import rendering
+        from gym.utils import pyglet_rendering
 
         s = self.state
 
         if self.viewer is None:
-            self.viewer = rendering.Viewer(500, 500)
+            self.viewer = pyglet_rendering.Viewer(500, 500)
             bound = self.LINK_LENGTH_1 + self.LINK_LENGTH_2 + 0.2  # 2.2 for default
             self.viewer.set_bounds(-bound, bound, -bound, bound)
 
@@ -211,7 +208,7 @@ class AcrobotEnv(core.Env):
         self.viewer.draw_line((-2.2, 1), (2.2, 1))
         for ((x, y), th, llen) in zip(xys, thetas, link_lengths):
             l, r, t, b = 0, llen, 0.1, -0.1
-            jtransform = rendering.Transform(rotation=th, translation=(x, y))
+            jtransform = pyglet_rendering.Transform(rotation=th, translation=(x, y))
             link = self.viewer.draw_polygon([(l, b), (l, t), (r, t), (r, b)])
             link.add_attr(jtransform)
             link.set_color(0, 0.8, 0.8)
