@@ -1,10 +1,12 @@
-import json  # note: ujson fails this test due to float equality
 import copy
+import json  # note: ujson fails this test due to float equality
+import pickle
+import tempfile
 
 import numpy as np
 import pytest
 
-from gym.spaces import Tuple, Box, Discrete, MultiDiscrete, MultiBinary, Dict
+from gym.spaces import Box, Dict, Discrete, Graph, MultiBinary, MultiDiscrete, Tuple
 
 
 @pytest.mark.parametrize(
@@ -17,7 +19,11 @@ from gym.spaces import Tuple, Box, Discrete, MultiDiscrete, MultiBinary, Dict
         Tuple(
             [
                 Discrete(5),
-                Box(low=np.array([0, 0]), high=np.array([1, 5]), dtype=np.float32),
+                Box(
+                    low=np.array([0.0, 0.0]),
+                    high=np.array([1.0, 5.0]),
+                    dtype=np.float64,
+                ),
             ]
         ),
         Tuple((Discrete(5), Discrete(2), Discrete(2))),
@@ -28,10 +34,15 @@ from gym.spaces import Tuple, Box, Discrete, MultiDiscrete, MultiBinary, Dict
             {
                 "position": Discrete(5),
                 "velocity": Box(
-                    low=np.array([0, 0]), high=np.array([1, 5]), dtype=np.float32
+                    low=np.array([0.0, 0.0]),
+                    high=np.array([1.0, 5.0]),
+                    dtype=np.float64,
                 ),
             }
         ),
+        Graph(node_space=Box(low=-100, high=100, shape=(3, 4)), edge_space=Discrete(5)),
+        Graph(node_space=Discrete(5), edge_space=Box(low=-100, high=100, shape=(3, 4))),
+        Graph(node_space=Discrete(5), edge_space=None),
     ],
 )
 def test_roundtripping(space):
@@ -59,13 +70,17 @@ def test_roundtripping(space):
     [
         Discrete(3),
         Discrete(5, start=-2),
-        Box(low=np.array([-10, 0]), high=np.array([10, 10]), dtype=np.float32),
+        Box(low=np.array([-10.0, 0.0]), high=np.array([10.0, 10.0]), dtype=np.float64),
         Box(low=-np.inf, high=np.inf, shape=(1, 3)),
         Tuple([Discrete(5), Discrete(10)]),
         Tuple(
             [
                 Discrete(5),
-                Box(low=np.array([0, 0]), high=np.array([1, 5]), dtype=np.float32),
+                Box(
+                    low=np.array([0.0, 0.0]),
+                    high=np.array([1.0, 5.0]),
+                    dtype=np.float64,
+                ),
             ]
         ),
         Tuple((Discrete(5), Discrete(2), Discrete(2))),
@@ -76,15 +91,20 @@ def test_roundtripping(space):
             {
                 "position": Discrete(5),
                 "velocity": Box(
-                    low=np.array([0, 0]), high=np.array([1, 5]), dtype=np.float32
+                    low=np.array([0.0, 0.0]),
+                    high=np.array([1.0, 5.0]),
+                    dtype=np.float64,
                 ),
             }
         ),
+        Graph(node_space=Box(low=-100, high=100, shape=(3, 4)), edge_space=Discrete(5)),
+        Graph(node_space=Discrete(5), edge_space=Box(low=-100, high=100, shape=(3, 4))),
+        Graph(node_space=Discrete(5), edge_space=None),
     ],
 )
 def test_equality(space):
     space1 = space
-    space2 = copy.copy(space)
+    space2 = copy.deepcopy(space)
     assert space1 == space2, f"Expected {space1} to equal {space2}"
 
 
@@ -96,8 +116,14 @@ def test_equality(space):
         (MultiDiscrete([2, 2, 100]), MultiDiscrete([2, 2, 8])),
         (MultiBinary(8), MultiBinary(7)),
         (
-            Box(low=np.array([-10, 0]), high=np.array([10, 10]), dtype=np.float32),
-            Box(low=np.array([-10, 0]), high=np.array([10, 9]), dtype=np.float32),
+            Box(
+                low=np.array([-10.0, 0.0]),
+                high=np.array([10.0, 10.0]),
+                dtype=np.float64,
+            ),
+            Box(
+                low=np.array([-10.0, 0.0]), high=np.array([10.0, 9.0]), dtype=np.float64
+            ),
         ),
         (
             Box(low=-np.inf, high=0.0, shape=(2, 1)),
@@ -110,6 +136,12 @@ def test_equality(space):
         ),
         (Dict({"position": Discrete(5)}), Dict({"position": Discrete(4)})),
         (Dict({"position": Discrete(5)}), Dict({"speed": Discrete(5)})),
+        (
+            Graph(
+                node_space=Box(low=-100, high=100, shape=(3, 4)), edge_space=Discrete(5)
+            ),
+            Graph(node_space=Discrete(5), edge_space=None),
+        ),
     ],
 )
 def test_inequality(spaces):
@@ -154,7 +186,11 @@ def test_sample(space):
     [
         (Discrete(5), MultiBinary(5)),
         (
-            Box(low=np.array([-10, 0]), high=np.array([10, 10]), dtype=np.float32),
+            Box(
+                low=np.array([-10.0, 0.0]),
+                high=np.array([10.0, 10.0]),
+                dtype=np.float64,
+            ),
             MultiDiscrete([2, 2, 8]),
         ),
         (
@@ -167,6 +203,12 @@ def test_sample(space):
         (
             Box(low=np.array([-np.inf, 0.0]), high=np.array([0.0, np.inf])),
             Box(low=np.array([-np.inf, 1.0]), high=np.array([0.0, np.inf])),
+        ),
+        (
+            Graph(
+                node_space=Box(low=-100, high=100, shape=(3, 4)), edge_space=Discrete(5)
+            ),
+            Graph(node_space=Discrete(5), edge_space=None),
         ),
     ],
 )
@@ -245,7 +287,7 @@ def test_box_dtype_check():
     space = Box(0, 2, tuple(), dtype=np.float32)
 
     # casting will match the correct type
-    assert space.contains(0.5)
+    assert space.contains(np.array(0.5, dtype=np.float32))
 
     # float64 is not in float32 space
     assert not space.contains(np.array(0.5))
@@ -262,7 +304,11 @@ def test_box_dtype_check():
         Tuple(
             [
                 Discrete(5),
-                Box(low=np.array([0, 0]), high=np.array([1, 5]), dtype=np.float32),
+                Box(
+                    low=np.array([0.0, 0.0]),
+                    high=np.array([1.0, 5.0]),
+                    dtype=np.float64,
+                ),
             ]
         ),
         Tuple((Discrete(5), Discrete(2), Discrete(2))),
@@ -272,10 +318,16 @@ def test_box_dtype_check():
             {
                 "position": Discrete(5),
                 "velocity": Box(
-                    low=np.array([0, 0]), high=np.array([1, 5]), dtype=np.float32
+                    low=np.array([0.0, 0.0]),
+                    high=np.array([1.0, 5.0]),
+                    dtype=np.float64,
                 ),
             }
         ),
+        Graph(node_space=Box(low=-100, high=100, shape=(3, 4)), edge_space=Discrete(5)),
+        Graph(node_space=Discrete(5), edge_space=Box(low=-100, high=100, shape=(3, 4))),
+        Graph(node_space=Box(low=-100, high=100, shape=(3, 4)), edge_space=None),
+        Graph(node_space=Discrete(5), edge_space=None),
     ],
 )
 def test_seed_returns_list(space):
@@ -315,7 +367,11 @@ def sample_equal(sample1, sample2):
         Tuple(
             [
                 Discrete(5),
-                Box(low=np.array([0, 0]), high=np.array([1, 5]), dtype=np.float32),
+                Box(
+                    low=np.array([0.0, 0.0]),
+                    high=np.array([1.0, 5.0]),
+                    dtype=np.float64,
+                ),
             ]
         ),
         Tuple((Discrete(5), Discrete(2), Discrete(2))),
@@ -325,10 +381,16 @@ def sample_equal(sample1, sample2):
             {
                 "position": Discrete(5),
                 "velocity": Box(
-                    low=np.array([0, 0]), high=np.array([1, 5]), dtype=np.float32
+                    low=np.array([0.0, 0.0]),
+                    high=np.array([1.0, 5.0]),
+                    dtype=np.float64,
                 ),
             }
         ),
+        Graph(node_space=Box(low=-100, high=100, shape=(3, 4)), edge_space=Discrete(5)),
+        Graph(node_space=Discrete(5), edge_space=Box(low=-100, high=100, shape=(3, 4))),
+        Graph(node_space=Box(low=-100, high=100, shape=(3, 4)), edge_space=None),
+        Graph(node_space=Discrete(5), edge_space=None),
     ],
 )
 def test_seed_reproducibility(space):
@@ -351,7 +413,11 @@ def test_seed_reproducibility(space):
         Tuple(
             [
                 Discrete(5),
-                Box(low=np.array([0, 0]), high=np.array([1, 5]), dtype=np.float32),
+                Box(
+                    low=np.array([0.0, 0.0]),
+                    high=np.array([1.0, 5.0]),
+                    dtype=np.float64,
+                ),
             ]
         ),
         Tuple((Discrete(5), Discrete(2), Discrete(2))),
@@ -359,14 +425,29 @@ def test_seed_reproducibility(space):
             {
                 "position": Discrete(5),
                 "velocity": Box(
-                    low=np.array([0, 0]), high=np.array([1, 5]), dtype=np.float32
+                    low=np.array([0.0, 0.0]),
+                    high=np.array([1.0, 5.0]),
+                    dtype=np.float64,
                 ),
             }
         ),
+        Graph(node_space=Box(low=-100, high=100, shape=(3, 4)), edge_space=Discrete(5)),
+        Graph(node_space=Discrete(5), edge_space=Box(low=-100, high=100, shape=(3, 4))),
+        Graph(node_space=Box(low=-100, high=100, shape=(3, 4)), edge_space=None),
+        Graph(node_space=Discrete(5), edge_space=None),
     ],
 )
 def test_seed_subspace_incorrelated(space):
-    subspaces = space.spaces if isinstance(space, Tuple) else space.spaces.values()
+    subspaces = []
+    if isinstance(space, Tuple):
+        subspaces = space.spaces
+    elif isinstance(space, Dict):
+        subspaces = space.spaces.values()
+    elif isinstance(space, Graph):
+        if space.edge_space is not None:
+            subspaces = [space.node_space, space.edge_space]
+        else:
+            subspaces = [space.node_space]
 
     space.seed(0)
     states = [
@@ -375,6 +456,23 @@ def test_seed_subspace_incorrelated(space):
     ]
 
     assert len(states) == len(set(states))
+
+
+def test_tuple():
+    spaces = [Discrete(5), Discrete(10), Discrete(5)]
+    space_tuple = Tuple(spaces)
+
+    assert len(space_tuple) == len(spaces)
+    assert space_tuple.count(Discrete(5)) == 2
+    assert space_tuple.count(MultiBinary(2)) == 0
+    for i, space in enumerate(space_tuple):
+        assert space == spaces[i]
+    for i, space in enumerate(reversed(space_tuple)):
+        assert space == spaces[len(spaces) - 1 - i]
+    assert space_tuple.index(Discrete(5)) == 0
+    assert space_tuple.index(Discrete(5), 1) == 2
+    with pytest.raises(ValueError):
+        space_tuple.index(Discrete(10), 0, 1)
 
 
 def test_multidiscrete_as_tuple():
@@ -508,29 +606,23 @@ def test_infinite_space(space):
 
     # check that int bounds are bounded for everything
     # but floats are unbounded for infinite
-    if space.dtype.kind == "f":
-        if np.any(space.high != 0):
-            assert (
-                space.is_bounded("above") == False
-            ), "float dtype inf upper bound supposed to be unbounded"
-        else:
-            assert (
-                space.is_bounded("above") == True
-            ), "float dtype non-inf upper bound supposed to be bounded"
-
-        if np.any(space.low != 0):
-            assert (
-                space.is_bounded("below") == False
-            ), "float dtype inf lower bound supposed to be unbounded"
-        else:
-            assert (
-                space.is_bounded("below") == True
-            ), "float dtype non-inf lower bound supposed to be bounded"
-
-    elif space.dtype.kind == "i":
+    if np.any(space.high != 0):
         assert (
-            space.is_bounded("both") == True
-        ), "int dtypes should be bounded on both ends"
+            space.is_bounded("above") is False
+        ), "inf upper bound supposed to be unbounded"
+    else:
+        assert (
+            space.is_bounded("above") is True
+        ), "non-inf upper bound supposed to be bounded"
+
+    if np.any(space.low != 0):
+        assert (
+            space.is_bounded("below") is False
+        ), "inf lower bound supposed to be unbounded"
+    else:
+        assert (
+            space.is_bounded("below") is True
+        ), "non-inf lower bound supposed to be bounded"
 
     # check for dtype
     assert (
@@ -539,3 +631,92 @@ def test_infinite_space(space):
     assert (
         space.low.dtype == space.dtype
     ), "Low's dtype {space.high.dtype} doesn't match `space.dtype`'"
+
+
+def test_discrete_legacy_state_pickling():
+    legacy_state = {
+        "n": 3,
+    }
+
+    d = Discrete(1)
+    assert "start" in d.__dict__
+    del d.__dict__["start"]  # legacy did not include start param
+    assert "start" not in d.__dict__
+
+    d.__setstate__(legacy_state)
+
+    assert d.start == 0
+    assert d.n == 3
+
+
+def test_box_legacy_state_pickling():
+    legacy_state = {
+        "dtype": np.dtype("float32"),
+        "_shape": (5,),
+        "low": np.array([0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32),
+        "high": np.array([1.0, 1.0, 1.0, 1.0, 1.0], dtype=np.float32),
+        "bounded_below": np.array([True, True, True, True, True]),
+        "bounded_above": np.array([True, True, True, True, True]),
+        "_np_random": None,
+    }
+
+    b = Box(-1, 1, ())
+    assert "low_repr" in b.__dict__ and "high_repr" in b.__dict__
+    del b.__dict__["low_repr"]
+    del b.__dict__["high_repr"]
+    assert "low_repr" not in b.__dict__ and "high_repr" not in b.__dict__
+
+    b.__setstate__(legacy_state)
+    assert b.low_repr == "0.0"
+    assert b.high_repr == "1.0"
+
+
+@pytest.mark.parametrize(
+    "space",
+    [
+        Discrete(3),
+        Discrete(5, start=-2),
+        Box(low=0.0, high=np.inf, shape=(2, 2)),
+        Tuple([Discrete(5), Discrete(10)]),
+        Tuple(
+            [
+                Discrete(5),
+                Box(low=np.array([0.0, 0.0]), high=np.array([1, 5]), dtype=np.float64),
+            ]
+        ),
+        Tuple((Discrete(5), Discrete(2), Discrete(2))),
+        Tuple((Discrete(5), Discrete(2, start=6), Discrete(2, start=-4))),
+        MultiDiscrete([2, 2, 100]),
+        MultiBinary(10),
+        Dict(
+            {
+                "position": Discrete(5),
+                "velocity": Box(
+                    low=np.array([0.0, 0.0]), high=np.array([1, 5]), dtype=np.float64
+                ),
+            }
+        ),
+        Graph(node_space=Box(low=-100, high=100, shape=(3, 4)), edge_space=Discrete(5)),
+        Graph(node_space=Discrete(5), edge_space=Box(low=-100, high=100, shape=(3, 4))),
+        Graph(node_space=Box(low=-100, high=100, shape=(3, 4)), edge_space=None),
+        Graph(node_space=Discrete(5), edge_space=None),
+    ],
+)
+def test_pickle(space):
+    space.sample()
+
+    # Pickle and unpickle with a string
+    pickled = pickle.dumps(space)
+    space2 = pickle.loads(pickled)
+
+    # Pickle and unpickle with a file
+    with tempfile.TemporaryFile() as f:
+        pickle.dump(space, f)
+        f.seek(0)
+        space3 = pickle.load(f)
+
+    sample = space.sample()
+    sample2 = space2.sample()
+    sample3 = space3.sample()
+    assert sample_equal(sample, sample2)
+    assert sample_equal(sample, sample3)

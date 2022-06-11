@@ -1,13 +1,12 @@
-import pytest
-import numpy as np
-
 from collections import OrderedDict
 
-from gym.spaces import Tuple, Dict
+import numpy as np
+import pytest
+
+from gym.spaces import Dict, Tuple
+from gym.vector.utils.numpy_utils import concatenate, create_empty_array
 from gym.vector.utils.spaces import _BaseGymSpaces
 from tests.vector.utils import spaces
-
-from gym.vector.utils.numpy_utils import concatenate, create_empty_array
 
 
 @pytest.mark.parametrize(
@@ -46,7 +45,7 @@ def test_concatenate(space):
 
     samples = [space.sample() for _ in range(8)]
     array = create_empty_array(space, n=8)
-    concatenated = concatenate(samples, array, space)
+    concatenated = concatenate(space, samples, array)
 
     assert np.all(concatenated == array)
     assert_nested_equal(array, samples, n=8)

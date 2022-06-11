@@ -1,7 +1,9 @@
+from typing import Optional
+
 import numpy as np
+
 from gym import utils
 from gym.envs.mujoco import mujoco_env
-
 
 DEFAULT_CAMERA_CONFIG = {
     "distance": 4.0,
@@ -11,6 +13,7 @@ DEFAULT_CAMERA_CONFIG = {
 class AntEnv(mujoco_env.MujocoEnv, utils.EzPickle):
     def __init__(
         self,
+        render_mode: Optional[str] = None,
         xml_file="ant.xml",
         ctrl_cost_weight=0.5,
         contact_cost_weight=5e-4,
@@ -38,7 +41,7 @@ class AntEnv(mujoco_env.MujocoEnv, utils.EzPickle):
             exclude_current_positions_from_observation
         )
 
-        mujoco_env.MujocoEnv.__init__(self, xml_file, 5)
+        mujoco_env.MujocoEnv.__init__(self, xml_file, 5, mujoco_bindings="mujoco_py")
 
     @property
     def healthy_reward(self):
@@ -93,6 +96,8 @@ class AntEnv(mujoco_env.MujocoEnv, utils.EzPickle):
 
         rewards = forward_reward + healthy_reward
         costs = ctrl_cost + contact_cost
+
+        self.renderer.render_step()
 
         reward = rewards - costs
         done = self.done

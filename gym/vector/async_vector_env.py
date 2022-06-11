@@ -1,31 +1,33 @@
-from typing import Optional, Union, List
+"""An async vector environment."""
+import multiprocessing as mp
+import sys
+import time
+from copy import deepcopy
+from enum import Enum
+from typing import List, Optional, Sequence, Tuple, Union
 
 import numpy as np
-import multiprocessing as mp
-import time
-import sys
-from enum import Enum
-from copy import deepcopy
 
+import gym
 from gym import logger
-from gym.logger import warn
-from gym.vector.vector_env import VectorEnv
+from gym.core import ObsType
 from gym.error import (
     AlreadyPendingCallError,
-    NoAsyncCallError,
     ClosedEnvironmentError,
     CustomSpaceError,
+    NoAsyncCallError,
 )
 from gym.vector.utils import (
-    create_shared_memory,
-    create_empty_array,
-    write_to_shared_memory,
-    read_from_shared_memory,
-    concatenate,
-    iterate,
     CloudpickleWrapper,
     clear_mpi_env_vars,
+    concatenate,
+    create_empty_array,
+    create_shared_memory,
+    iterate,
+    read_from_shared_memory,
+    write_to_shared_memory,
 )
+from gym.vector.vector_env import VectorEnv
 
 __all__ = ["AsyncVectorEnv"]
 
@@ -34,72 +36,17 @@ class AsyncState(Enum):
     DEFAULT = "default"
     WAITING_RESET = "reset"
     WAITING_STEP = "step"
+    WAITING_CALL = "call"
 
 
 class AsyncVectorEnv(VectorEnv):
-    """Vectorized environment that runs multiple environments in parallel. It
-    uses `multiprocessing`_ processes, and pipes for communication.
+    """Vectorized environment that runs multiple environments in parallel.
 
-    Parameters
-    ----------
-    env_fns : iterable of callable
-        Functions that create the environments.
+    It uses ``multiprocessing`` processes, and pipes for communication.
 
-    observation_space : :class:`gym.spaces.Space`, optional
-        Observation space of a single environment. If ``None``, then the
-        observation space of the first environment is taken.
+    Example::
 
-    action_space : :class:`gym.spaces.Space`, optional
-        Action space of a single environment. If ``None``, then the action space
-        of the first environment is taken.
-
-    shared_memory : bool
-        If ``True``, then the observations from the worker processes are
-        communicated back through shared variables. This can improve the
-        efficiency if the observations are large (e.g. images).
-
-    copy : bool
-        If ``True``, then the :meth:`~AsyncVectorEnv.reset` and
-        :meth:`~AsyncVectorEnv.step` methods return a copy of the observations.
-
-    context : str, optional
-        Context for `multiprocessing`_. If ``None``, then the default context is used.
-
-    daemon : bool
-        If ``True``, then subprocesses have ``daemon`` flag turned on; that is, they
-        will quit if the head process quits. However, ``daemon=True`` prevents
-        subprocesses to spawn children, so for some environments you may want
-        to have it set to ``False``.
-
-    worker : callable, optional
-        If set, then use that worker in a subprocess instead of a default one.
-        Can be useful to override some inner vector env logic, for instance,
-        how resets on done are handled.
-
-    Warning
-    -------
-    :attr:`worker` is an advanced mode option. It provides a high degree of
-    flexibility and a high chance to shoot yourself in the foot; thus,
-    if you are writing your own worker, it is recommended to start from the code
-    for ``_worker`` (or ``_worker_shared_memory``) method, and add changes.
-
-    Raises
-    ------
-    RuntimeError
-        If the observation space of some sub-environment does not match
-        :obj:`observation_space` (or, by default, the observation space of
-        the first sub-environment).
-
-    ValueError
-        If :obj:`observation_space` is a custom space (i.e. not a default
-        space in Gym, such as :class:`~gym.spaces.Box`, :class:`~gym.spaces.Discrete`,
-        or :class:`~gym.spaces.Dict`) and :obj:`shared_memory` is ``True``.
-
-    Example
-    -------
-
-    .. code-block::
-
+        >>> import gym
         >>> env = gym.vector.AsyncVectorEnv([
         ...     lambda: gym.make("Pendulum-v0", g=9.81),
         ...     lambda: gym.make("Pendulum-v0", g=1.62)
@@ -111,15 +58,44 @@ class AsyncVectorEnv(VectorEnv):
 
     def __init__(
         self,
-        env_fns,
-        observation_space=None,
-        action_space=None,
-        shared_memory=True,
-        copy=True,
-        context=None,
-        daemon=True,
-        worker=None,
+        env_fns: Sequence[callable],
+        observation_space: Optional[gym.Space] = None,
+        action_space: Optional[gym.Space] = None,
+        shared_memory: bool = True,
+        copy: bool = True,
+        context: Optional[str] = None,
+        daemon: bool = True,
+        worker: Optional[callable] = None,
     ):
+        """Vectorized environment that runs multiple environments in parallel.
+
+        Args:
+            env_fns: Functions that create the environments.
+            observation_space: Observation space of a single environment. If ``None``,
+                then the observation space of the first environment is taken.
+            action_space: Action space of a single environment. If ``None``,
+                then the action space of the first environment is taken.
+            shared_memory: If ``True``, then the observations from the worker processes are communicated back through
+                shared variables. This can improve the efficiency if the observations are large (e.g. images).
+            copy: If ``True``, then the :meth:`~AsyncVectorEnv.reset` and :meth:`~AsyncVectorEnv.step` methods
+                return a copy of the observations.
+            context: Context for `multiprocessing`_. If ``None``, then the default context is used.
+            daemon: If ``True``, then subprocesses have ``daemon`` flag turned on; that is, they will quit if
+                the head process quits. However, ``daemon=True`` prevents subprocesses to spawn children,
+                so for some environments you may want to have it set to ``False``.
+            worker: If set, then use that worker in a subprocess instead of a default one.
+                Can be useful to override some inner vector env logic, for instance, how resets on done are handled.
+
+        Warnings: worker is an advanced mode option. It provides a high degree of flexibility and a high chance
+            to shoot yourself in the foot; thus, if you are writing your own worker, it is recommended to start
+            from the code for ``_worker`` (or ``_worker_shared_memory``) method, and add changes.
+
+        Raises:
+            RuntimeError: If the observation space of some sub-environment does not match observation_space
+                (or, by default, the observation space of the first sub-environment).
+            ValueError: If observation_space is a custom space (i.e. not a default space in Gym,
+                such as gym.spaces.Box, gym.spaces.Discrete, or gym.spaces.Dict) and shared_memory is True.
+        """
         ctx = mp.get_context(context)
         self.env_fns = env_fns
         self.shared_memory = shared_memory
@@ -144,7 +120,7 @@ class AsyncVectorEnv(VectorEnv):
                     self.single_observation_space, n=self.num_envs, ctx=ctx
                 )
                 self.observations = read_from_shared_memory(
-                    _obs_buffer, self.single_observation_space, n=self.num_envs
+                    self.single_observation_space, _obs_buffer, n=self.num_envs
                 )
             except CustomSpaceError:
                 raise ValueError(
@@ -192,6 +168,14 @@ class AsyncVectorEnv(VectorEnv):
         self._check_spaces()
 
     def seed(self, seed=None):
+        """Seeds the vector environments.
+
+        Args:
+            seed: The seeds use with the environments
+
+        Raises:
+            AlreadyPendingCallError: Calling `seed` while waiting for a pending call to complete
+        """
         super().seed(seed=seed)
         self._assert_is_running()
         if seed is None:
@@ -214,20 +198,23 @@ class AsyncVectorEnv(VectorEnv):
     def reset_async(
         self,
         seed: Optional[Union[int, List[int]]] = None,
+        return_info: bool = False,
         options: Optional[dict] = None,
     ):
-        """Send the calls to :obj:`reset` to each sub-environment.
+        """Send calls to the :obj:`reset` methods of the sub-environments.
 
-        Raises
-        ------
-        ClosedEnvironmentError
-            If the environment was closed (if :meth:`close` was previously called).
+        To get the results of these calls, you may invoke :meth:`reset_wait`.
 
-        AlreadyPendingCallError
-            If the environment is already waiting for a pending call to another
-            method (e.g. :meth:`step_async`). This can be caused by two consecutive
-            calls to :meth:`reset_async`, with no call to :meth:`reset_wait` in
-            between.
+        Args:
+            seed: List of seeds for each environment
+            return_info: If to return information
+            options: The reset option
+
+        Raises:
+            ClosedEnvironmentError: If the environment was closed (if :meth:`close` was previously called).
+            AlreadyPendingCallError: If the environment is already waiting for a pending call to another
+                method (e.g. :meth:`step_async`). This can be caused by two consecutive
+                calls to :meth:`reset_async`, with no call to :meth:`reset_wait` in between.
         """
         self._assert_is_running()
 
@@ -247,6 +234,8 @@ class AsyncVectorEnv(VectorEnv):
             single_kwargs = {}
             if single_seed is not None:
                 single_kwargs["seed"] = single_seed
+            if return_info:
+                single_kwargs["return_info"] = return_info
             if options is not None:
                 single_kwargs["options"] = options
 
@@ -254,33 +243,27 @@ class AsyncVectorEnv(VectorEnv):
         self._state = AsyncState.WAITING_RESET
 
     def reset_wait(
-        self, timeout=None, seed: Optional[int] = None, options: Optional[dict] = None
-    ):
-        """
-        Parameters
-        ----------
-        timeout : int or float, optional
-            Number of seconds before the call to `reset_wait` times out. If
-            `None`, the call to `reset_wait` never times out.
-        seed: ignored
-        options: ignored
+        self,
+        timeout: Optional[Union[int, float]] = None,
+        seed: Optional[int] = None,
+        return_info: bool = False,
+        options: Optional[dict] = None,
+    ) -> Union[ObsType, Tuple[ObsType, List[dict]]]:
+        """Waits for the calls triggered by :meth:`reset_async` to finish and returns the results.
 
-        Returns
-        -------
-        element of :attr:`~VectorEnv.observation_space`
-            A batch of observations from the vectorized environment.
+        Args:
+            timeout: Number of seconds before the call to `reset_wait` times out. If `None`, the call to `reset_wait` never times out.
+            seed: ignored
+            return_info: If to return information
+            options: ignored
 
-        Raises
-        ------
-        ClosedEnvironmentError
-            If the environment was closed (if :meth:`close` was previously called).
+        Returns:
+            A tuple of batched observations and list of dictionaries
 
-        NoAsyncCallError
-            If :meth:`reset_wait` was called without any prior call to
-            :meth:`reset_async`.
-
-        TimeoutError
-            If :meth:`reset_wait` timed out.
+        Raises:
+            ClosedEnvironmentError: If the environment was closed (if :meth:`close` was previously called).
+            NoAsyncCallError: If :meth:`reset_wait` was called without any prior call to :meth:`reset_async`.
+            TimeoutError: If :meth:`reset_wait` timed out.
         """
         self._assert_is_running()
         if self._state != AsyncState.WAITING_RESET:
@@ -292,38 +275,47 @@ class AsyncVectorEnv(VectorEnv):
         if not self._poll(timeout):
             self._state = AsyncState.DEFAULT
             raise mp.TimeoutError(
-                f"The call to `reset_wait` has timed out after {timeout} second{'s' if timeout > 1 else ''}."
+                f"The call to `reset_wait` has timed out after {timeout} second(s)."
             )
 
         results, successes = zip(*[pipe.recv() for pipe in self.parent_pipes])
         self._raise_if_errors(successes)
         self._state = AsyncState.DEFAULT
 
-        if not self.shared_memory:
-            self.observations = concatenate(
-                results, self.observations, self.single_observation_space
-            )
+        if return_info:
+            infos = {}
+            results, info_data = zip(*results)
+            for i, info in enumerate(info_data):
+                infos = self._add_info(infos, info, i)
 
-        return deepcopy(self.observations) if self.copy else self.observations
+            if not self.shared_memory:
+                self.observations = concatenate(
+                    self.single_observation_space, results, self.observations
+                )
 
-    def step_async(self, actions):
+            return (
+                deepcopy(self.observations) if self.copy else self.observations
+            ), infos
+        else:
+            if not self.shared_memory:
+                self.observations = concatenate(
+                    self.single_observation_space, results, self.observations
+                )
+
+            return deepcopy(self.observations) if self.copy else self.observations
+
+    def step_async(self, actions: np.ndarray):
         """Send the calls to :obj:`step` to each sub-environment.
 
-        Parameters
-        ----------
-        actions : element of :attr:`~VectorEnv.action_space`
-            Batch of actions.
+        Args:
+            actions: Batch of actions. element of :attr:`~VectorEnv.action_space`
 
-        Raises
-        ------
-        ClosedEnvironmentError
-            If the environment was closed (if :meth:`close` was previously called).
-
-        AlreadyPendingCallError
-            If the environment is already waiting for a pending call to another
-            method (e.g. :meth:`reset_async`). This can be caused by two consecutive
-            calls to :meth:`step_async`, with no call to :meth:`step_wait` in
-            between.
+        Raises:
+            ClosedEnvironmentError: If the environment was closed (if :meth:`close` was previously called).
+            AlreadyPendingCallError: If the environment is already waiting for a pending call to another
+                method (e.g. :meth:`reset_async`). This can be caused by two consecutive
+                calls to :meth:`step_async`, with no call to :meth:`step_wait` in
+                between.
         """
         self._assert_is_running()
         if self._state != AsyncState.DEFAULT:
@@ -337,40 +329,21 @@ class AsyncVectorEnv(VectorEnv):
             pipe.send(("step", action))
         self._state = AsyncState.WAITING_STEP
 
-    def step_wait(self, timeout=None):
+    def step_wait(
+        self, timeout: Optional[Union[int, float]] = None
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, List[dict]]:
         """Wait for the calls to :obj:`step` in each sub-environment to finish.
 
-        Parameters
-        ----------
-        timeout : int or float, optional
-            Number of seconds before the call to :meth:`step_wait` times out. If
-            ``None``, the call to :meth:`step_wait` never times out.
+        Args:
+            timeout: Number of seconds before the call to :meth:`step_wait` times out. If ``None``, the call to :meth:`step_wait` never times out.
 
-        Returns
-        -------
-        observations : element of :attr:`~VectorEnv.observation_space`
-            A batch of observations from the vectorized environment.
+        Returns:
+             The batched environment step information, obs, reward, done and info
 
-        rewards : :obj:`np.ndarray`, dtype :obj:`np.float_`
-            A vector of rewards from the vectorized environment.
-
-        dones : :obj:`np.ndarray`, dtype :obj:`np.bool_`
-            A vector whose entries indicate whether the episode has ended.
-
-        infos : list of dict
-            A list of auxiliary diagnostic information dicts from sub-environments.
-
-        Raises
-        ------
-        ClosedEnvironmentError
-            If the environment was closed (if :meth:`close` was previously called).
-
-        NoAsyncCallError
-            If :meth:`step_wait` was called without any prior call to
-            :meth:`step_async`.
-
-        TimeoutError
-            If :meth:`step_wait` timed out.
+        Raises:
+            ClosedEnvironmentError: If the environment was closed (if :meth:`close` was previously called).
+            NoAsyncCallError: If :meth:`step_wait` was called without any prior call to :meth:`step_async`.
+            TimeoutError: If :meth:`step_wait` timed out.
         """
         self._assert_is_running()
         if self._state != AsyncState.WAITING_STEP:
@@ -382,17 +355,29 @@ class AsyncVectorEnv(VectorEnv):
         if not self._poll(timeout):
             self._state = AsyncState.DEFAULT
             raise mp.TimeoutError(
-                f"The call to `step_wait` has timed out after {timeout} second{'s' if timeout > 1 else ''}."
+                f"The call to `step_wait` has timed out after {timeout} second(s)."
             )
 
-        results, successes = zip(*[pipe.recv() for pipe in self.parent_pipes])
+        observations_list, rewards, dones, infos = [], [], [], {}
+        successes = []
+        for i, pipe in enumerate(self.parent_pipes):
+            result, success = pipe.recv()
+            obs, rew, done, info = result
+
+            successes.append(success)
+            observations_list.append(obs)
+            rewards.append(rew)
+            dones.append(done)
+            infos = self._add_info(infos, info, i)
+
         self._raise_if_errors(successes)
         self._state = AsyncState.DEFAULT
-        observations_list, rewards, dones, infos = zip(*results)
 
         if not self.shared_memory:
             self.observations = concatenate(
-                observations_list, self.observations, self.single_observation_space
+                self.single_observation_space,
+                observations_list,
+                self.observations,
             )
 
         return (
@@ -402,25 +387,111 @@ class AsyncVectorEnv(VectorEnv):
             infos,
         )
 
-    def close_extras(self, timeout=None, terminate=False):
-        """Close the environments & clean up the extra resources
-        (processes and pipes).
+    def call_async(self, name: str, *args, **kwargs):
+        """Calls the method with name asynchronously and apply args and kwargs to the method.
 
-        Parameters
-        ----------
-        timeout : int or float, optional
-            Number of seconds before the call to :meth:`close` times out. If ``None``,
-            the call to :meth:`close` never times out. If the call to :meth:`close`
-            times out, then all processes are terminated.
+        Args:
+            name: Name of the method or property to call.
+            *args: Arguments to apply to the method call.
+            **kwargs: Keyword arguments to apply to the method call.
 
-        terminate : bool
-            If ``True``, then the :meth:`close` operation is forced and all processes
-            are terminated.
+        Raises:
+            ClosedEnvironmentError: If the environment was closed (if :meth:`close` was previously called).
+            AlreadyPendingCallError: Calling `call_async` while waiting for a pending call to complete
+        """
+        self._assert_is_running()
+        if self._state != AsyncState.DEFAULT:
+            raise AlreadyPendingCallError(
+                "Calling `call_async` while waiting "
+                f"for a pending call to `{self._state.value}` to complete.",
+                self._state.value,
+            )
 
-        Raises
-        ------
-        TimeoutError
-            If :meth:`close` timed out.
+        for pipe in self.parent_pipes:
+            pipe.send(("_call", (name, args, kwargs)))
+        self._state = AsyncState.WAITING_CALL
+
+    def call_wait(self, timeout: Optional[Union[int, float]] = None) -> list:
+        """Calls all parent pipes and waits for the results.
+
+        Args:
+            timeout: Number of seconds before the call to `step_wait` times out.
+                If `None` (default), the call to `step_wait` never times out.
+
+        Returns:
+            List of the results of the individual calls to the method or property for each environment.
+
+        Raises:
+            NoAsyncCallError: Calling `call_wait` without any prior call to `call_async`.
+            TimeoutError: The call to `call_wait` has timed out after timeout second(s).
+        """
+        self._assert_is_running()
+        if self._state != AsyncState.WAITING_CALL:
+            raise NoAsyncCallError(
+                "Calling `call_wait` without any prior call to `call_async`.",
+                AsyncState.WAITING_CALL.value,
+            )
+
+        if not self._poll(timeout):
+            self._state = AsyncState.DEFAULT
+            raise mp.TimeoutError(
+                f"The call to `call_wait` has timed out after {timeout} second(s)."
+            )
+
+        results, successes = zip(*[pipe.recv() for pipe in self.parent_pipes])
+        self._raise_if_errors(successes)
+        self._state = AsyncState.DEFAULT
+
+        return results
+
+    def set_attr(self, name: str, values: Union[list, tuple, object]):
+        """Sets an attribute of the sub-environments.
+
+        Args:
+            name: Name of the property to be set in each individual environment.
+            values: Values of the property to be set to. If ``values`` is a list or
+                tuple, then it corresponds to the values for each individual
+                environment, otherwise a single value is set for all environments.
+
+        Raises:
+            ValueError: Values must be a list or tuple with length equal to the number of environments.
+            AlreadyPendingCallError: Calling `set_attr` while waiting for a pending call to complete.
+        """
+        self._assert_is_running()
+        if not isinstance(values, (list, tuple)):
+            values = [values for _ in range(self.num_envs)]
+        if len(values) != self.num_envs:
+            raise ValueError(
+                "Values must be a list or tuple with length equal to the "
+                f"number of environments. Got `{len(values)}` values for "
+                f"{self.num_envs} environments."
+            )
+
+        if self._state != AsyncState.DEFAULT:
+            raise AlreadyPendingCallError(
+                "Calling `set_attr` while waiting "
+                f"for a pending call to `{self._state.value}` to complete.",
+                self._state.value,
+            )
+
+        for pipe, value in zip(self.parent_pipes, values):
+            pipe.send(("_setattr", (name, value)))
+        _, successes = zip(*[pipe.recv() for pipe in self.parent_pipes])
+        self._raise_if_errors(successes)
+
+    def close_extras(
+        self, timeout: Optional[Union[int, float]] = None, terminate: bool = False
+    ):
+        """Close the environments & clean up the extra resources (processes and pipes).
+
+        Args:
+            timeout: Number of seconds before the call to :meth:`close` times out. If ``None``,
+                the call to :meth:`close` never times out. If the call to :meth:`close`
+                times out, then all processes are terminated.
+            terminate: If ``True``, then the :meth:`close` operation is forced and all processes are terminated.
+
+        Raises:
+            TimeoutError: If :meth:`close` timed out.
         """
         timeout = 0 if terminate else timeout
         try:
@@ -511,7 +582,8 @@ class AsyncVectorEnv(VectorEnv):
         raise exctype(value)
 
     def __del__(self):
-        if not getattr(self, "closed", True):
+        """On deleting the object, checks that the vector environment is closed."""
+        if not getattr(self, "closed", True) and hasattr(self, "_state"):
             self.close(terminate=True)
 
 
@@ -523,8 +595,13 @@ def _worker(index, env_fn, pipe, parent_pipe, shared_memory, error_queue):
         while True:
             command, data = pipe.recv()
             if command == "reset":
-                observation = env.reset(**data)
-                pipe.send((observation, True))
+                if "return_info" in data and data["return_info"] is True:
+                    observation, info = env.reset(**data)
+                    pipe.send(((observation, info), True))
+                else:
+                    observation = env.reset(**data)
+                    pipe.send((observation, True))
+
             elif command == "step":
                 observation, reward, done, info = env.step(data)
                 if done:
@@ -537,6 +614,22 @@ def _worker(index, env_fn, pipe, parent_pipe, shared_memory, error_queue):
             elif command == "close":
                 pipe.send((None, True))
                 break
+            elif command == "_call":
+                name, args, kwargs = data
+                if name in ["reset", "step", "seed", "close"]:
+                    raise ValueError(
+                        f"Trying to call function `{name}` with "
+                        f"`_call`. Use `{name}` directly instead."
+                    )
+                function = getattr(env, name)
+                if callable(function):
+                    pipe.send((function(*args, **kwargs), True))
+                else:
+                    pipe.send((function, True))
+            elif command == "_setattr":
+                name, value = data
+                setattr(env, name, value)
+                pipe.send((None, True))
             elif command == "_check_spaces":
                 pipe.send(
                     (
@@ -546,9 +639,9 @@ def _worker(index, env_fn, pipe, parent_pipe, shared_memory, error_queue):
                 )
             else:
                 raise RuntimeError(
-                    "Received unknown command `{0}`. Must "
-                    "be one of {`reset`, `step`, `seed`, `close`, "
-                    "`_check_spaces`}.".format(command)
+                    f"Received unknown command `{command}`. Must "
+                    "be one of {`reset`, `step`, `seed`, `close`, `_call`, "
+                    "`_setattr`, `_check_spaces`}."
                 )
     except (KeyboardInterrupt, Exception):
         error_queue.put((index,) + sys.exc_info()[:2])
@@ -566,18 +659,25 @@ def _worker_shared_memory(index, env_fn, pipe, parent_pipe, shared_memory, error
         while True:
             command, data = pipe.recv()
             if command == "reset":
-                observation = env.reset(**data)
-                write_to_shared_memory(
-                    index, observation, shared_memory, observation_space
-                )
-                pipe.send((None, True))
+                if "return_info" in data and data["return_info"] is True:
+                    observation, info = env.reset(**data)
+                    write_to_shared_memory(
+                        observation_space, index, observation, shared_memory
+                    )
+                    pipe.send(((None, info), True))
+                else:
+                    observation = env.reset(**data)
+                    write_to_shared_memory(
+                        observation_space, index, observation, shared_memory
+                    )
+                    pipe.send((None, True))
             elif command == "step":
                 observation, reward, done, info = env.step(data)
                 if done:
                     info["terminal_observation"] = observation
                     observation = env.reset()
                 write_to_shared_memory(
-                    index, observation, shared_memory, observation_space
+                    observation_space, index, observation, shared_memory
                 )
                 pipe.send(((None, reward, done, info), True))
             elif command == "seed":
@@ -586,15 +686,31 @@ def _worker_shared_memory(index, env_fn, pipe, parent_pipe, shared_memory, error
             elif command == "close":
                 pipe.send((None, True))
                 break
+            elif command == "_call":
+                name, args, kwargs = data
+                if name in ["reset", "step", "seed", "close"]:
+                    raise ValueError(
+                        f"Trying to call function `{name}` with "
+                        f"`_call`. Use `{name}` directly instead."
+                    )
+                function = getattr(env, name)
+                if callable(function):
+                    pipe.send((function(*args, **kwargs), True))
+                else:
+                    pipe.send((function, True))
+            elif command == "_setattr":
+                name, value = data
+                setattr(env, name, value)
+                pipe.send((None, True))
             elif command == "_check_spaces":
                 pipe.send(
                     ((data[0] == observation_space, data[1] == env.action_space), True)
                 )
             else:
                 raise RuntimeError(
-                    "Received unknown command `{0}`. Must "
-                    "be one of {`reset`, `step`, `seed`, `close`, "
-                    "`_check_spaces`}.".format(command)
+                    f"Received unknown command `{command}`. Must "
+                    "be one of {`reset`, `step`, `seed`, `close`, `_call`, "
+                    "`_setattr`, `_check_spaces`}."
                 )
     except (KeyboardInterrupt, Exception):
         error_queue.put((index,) + sys.exc_info()[:2])

@@ -1,25 +1,47 @@
+"""Implementation of a space that represents the cartesian product of other spaces."""
+from typing import Iterable, List, Optional, Sequence, Union
+
 import numpy as np
-from .space import Space
+
+from gym.spaces.space import Space
+from gym.utils import seeding
 
 
-class Tuple(Space):
+class Tuple(Space[tuple], Sequence):
+    """A tuple (more precisely: the cartesian product) of :class:`Space` instances.
+
+    Elements of this space are tuples of elements of the constituent spaces.
+
+    Example usage::
+
+        >>> from gym.spaces import Box, Discrete
+        >>> observation_space = Tuple((Discrete(2), Box(-1, 1, shape=(2,))))
+        >>> observation_space.sample()
+        (0, array([0.03633198, 0.42370757], dtype=float32))
     """
-    A tuple (i.e., product) of simpler spaces
 
-    Example usage:
-    self.observation_space = spaces.Tuple((spaces.Discrete(2), spaces.Discrete(3)))
-    """
+    def __init__(
+        self,
+        spaces: Iterable[Space],
+        seed: Optional[Union[int, List[int], seeding.RandomNumberGenerator]] = None,
+    ):
+        r"""Constructor of :class:`Tuple` space.
 
-    def __init__(self, spaces, seed=None):
-        spaces = tuple(spaces)
-        self.spaces = spaces
-        for space in spaces:
+        The generated instance will represent the cartesian product :math:`\text{spaces}[0] \times ... \times \text{spaces}[-1]`.
+
+        Args:
+            spaces (Iterable[Space]): The spaces that are involved in the cartesian product.
+            seed: Optionally, you can use this argument to seed the RNGs of the ``spaces`` to ensure reproducible sampling.
+        """
+        self.spaces = tuple(spaces)
+        for space in self.spaces:
             assert isinstance(
                 space, Space
             ), "Elements of the tuple must be instances of gym.Space"
-        super().__init__(None, None, seed)
+        super().__init__(None, None, seed)  # type: ignore
 
-    def seed(self, seed=None):
+    def seed(self, seed: Optional[Union[int, List[int]]] = None) -> list:
+        """Seed the PRNG of this space and all subspaces."""
         seeds = []
 
         if isinstance(seed, list):
@@ -50,10 +72,18 @@ class Tuple(Space):
 
         return seeds
 
-    def sample(self):
+    def sample(self) -> tuple:
+        """Generates a single random sample inside this space.
+
+        This method draws independent samples from the subspaces.
+
+        Returns:
+            Tuple of the subspace's samples
+        """
         return tuple(space.sample() for space in self.spaces)
 
-    def contains(self, x):
+    def contains(self, x) -> bool:
+        """Return boolean specifying if x is a valid member of this space."""
         if isinstance(x, (list, np.ndarray)):
             x = tuple(x)  # Promote list and ndarray to tuple for contains check
         return (
@@ -62,17 +92,20 @@ class Tuple(Space):
             and all(space.contains(part) for (space, part) in zip(self.spaces, x))
         )
 
-    def __repr__(self):
+    def __repr__(self) -> str:
+        """Gives a string representation of this space."""
         return "Tuple(" + ", ".join([str(s) for s in self.spaces]) + ")"
 
-    def to_jsonable(self, sample_n):
+    def to_jsonable(self, sample_n: Sequence) -> list:
+        """Convert a batch of samples from this space to a JSONable data type."""
         # serialize as list-repr of tuple of vectors
         return [
             space.to_jsonable([sample[i] for sample in sample_n])
             for i, space in enumerate(self.spaces)
         ]
 
-    def from_jsonable(self, sample_n):
+    def from_jsonable(self, sample_n) -> list:
+        """Convert a JSONable data type to a batch of samples from this space."""
         return [
             sample
             for sample in zip(
@@ -83,11 +116,14 @@ class Tuple(Space):
             )
         ]
 
-    def __getitem__(self, index):
+    def __getitem__(self, index: int) -> Space:
+        """Get the subspace at specific `index`."""
         return self.spaces[index]
 
-    def __len__(self):
+    def __len__(self) -> int:
+        """Get the number of subspaces that are involved in the cartesian product."""
         return len(self.spaces)
 
-    def __eq__(self, other):
+    def __eq__(self, other) -> bool:
+        """Check whether ``other`` is equivalent to this instance."""
         return isinstance(other, Tuple) and self.spaces == other.spaces

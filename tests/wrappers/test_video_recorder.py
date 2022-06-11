@@ -2,26 +2,34 @@ import gc
 import os
 import time
 
+import pytest
+
 import gym
 from gym.wrappers.monitoring.video_recorder import VideoRecorder
 
 
 class BrokenRecordableEnv:
-    metadata = {"render.modes": [None, "rgb_array"]}
+    metadata = {"render_modes": ["rgb_array"]}
 
-    def render(self, mode=None):
+    def __init__(self, render_mode="rgb_array"):
+        self.render_mode = render_mode
+
+    def render(self, mode="human"):
         pass
 
 
 class UnrecordableEnv:
-    metadata = {"render.modes": [None]}
+    metadata = {"render_modes": [None]}
 
-    def render(self, mode=None):
+    def __init__(self, render_mode=None):
+        self.render_mode = render_mode
+
+    def render(self, mode="human"):
         pass
 
 
 def test_record_simple():
-    env = gym.make("CartPole-v1")
+    env = gym.make("CartPole-v1", render_mode="rgb_array")
     rec = VideoRecorder(env)
     env.reset()
     rec.capture_frame()
@@ -41,7 +49,7 @@ def test_record_simple():
 
 def test_autoclose():
     def record():
-        env = gym.make("CartPole-v1")
+        env = gym.make("CartPole-v1", render_mode="rgb_array")
         rec = VideoRecorder(env)
         env.reset()
         rec.capture_frame()
@@ -82,6 +90,7 @@ def test_record_unrecordable_method():
     rec.close()
 
 
+@pytest.mark.filterwarnings("ignore:.*Env returned None on render.*")
 def test_record_breaking_render_method():
     env = BrokenRecordableEnv()
     rec = VideoRecorder(env)
@@ -93,7 +102,7 @@ def test_record_breaking_render_method():
 
 
 def test_text_envs():
-    env = gym.make("FrozenLake-v1")
+    env = gym.make("FrozenLake-v1", render_mode="rgb_array")
     video = VideoRecorder(env)
     try:
         env.reset()

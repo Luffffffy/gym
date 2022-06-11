@@ -1,12 +1,12 @@
-from typing import Optional
 import os
+from typing import Optional
 
 import numpy as np
-import pygame
 
 import gym
 from gym import spaces
-from gym.utils import seeding
+from gym.error import DependencyNotInstalled
+from gym.utils.renderer import Renderer
 
 
 def cmp(a, b):
@@ -48,40 +48,75 @@ def is_natural(hand):  # Is this hand a natural blackjack?
 
 
 class BlackjackEnv(gym.Env):
-    """Simple blackjack environment
+    """
+    Blackjack is a card game where the goal is to beat the dealer by obtaining cards
+    that sum to closer to 21 (without going over 21) than the dealers cards.
 
-    Blackjack is a card game where the goal is to obtain cards that sum to as
-    near as possible to 21 without going over.  They're playing against a fixed
-    dealer.
-    Face cards (Jack, Queen, King) have point value 10.
-    Aces can either count as 11 or 1, and it's called 'usable' at 11.
-    This game is placed with an infinite deck (or with replacement).
-    The game starts with dealer having one face up and one face down card, while
-    player having two face up cards. (Virtually for all Blackjack games today).
+    ### Description
+    Card Values:
 
-    The player can request additional cards (hit=1) until they decide to stop
-    (stick=0) or exceed 21 (bust).
+    - Face cards (Jack, Queen, King) have a point value of 10.
+    - Aces can either count as 11 (called a 'usable ace') or 1.
+    - Numerical cards (2-9) have a value equal to their number.
 
+    This game is played with an infinite deck (or with replacement).
+    The game starts with the dealer having one face up and one face down card,
+    while the player has two face up cards.
+
+    The player can request additional cards (hit, action=1) until they decide to stop (stick, action=0)
+    or exceed 21 (bust, immediate loss).
     After the player sticks, the dealer reveals their facedown card, and draws
-    until their sum is 17 or greater.  If the dealer goes bust the player wins.
+    until their sum is 17 or greater.  If the dealer goes bust, the player wins.
+    If neither the player nor the dealer busts, the outcome (win, lose, draw) is
+    decided by whose sum is closer to 21.
 
-    If neither player nor dealer busts, the outcome (win, lose, draw) is
-    decided by whose sum is closer to 21.  The reward for winning is +1,
-    drawing is 0, and losing is -1.
+    ### Action Space
+    There are two actions: stick (0), and hit (1).
 
-    The observation of a 3-tuple of: the players current sum,
-    the dealer's one showing card (1-10 where 1 is ace),
-    and whether or not the player holds a usable ace (0 or 1).
+    ### Observation Space
+    The observation consists of a 3-tuple containing: the player's current sum,
+    the value of the dealer's one showing card (1-10 where 1 is ace),
+    and whether the player holds a usable ace (0 or 1).
 
     This environment corresponds to the version of the blackjack problem
     described in Example 5.1 in Reinforcement Learning: An Introduction
-    by Sutton and Barto.
-    http://incompleteideas.net/book/the-book-2nd.html
+    by Sutton and Barto (http://incompleteideas.net/book/the-book-2nd.html).
+
+    ### Rewards
+    - win game: +1
+    - lose game: -1
+    - draw game: 0
+    - win game with natural blackjack:
+
+        +1.5 (if <a href="#nat">natural</a> is True)
+
+        +1 (if <a href="#nat">natural</a> is False)
+
+    ### Arguments
+
+    ```
+    gym.make('Blackjack-v1', natural=False, sab=False)
+    ```
+
+    <a id="nat">`natural=False`</a>: Whether to give an additional reward for
+    starting with a natural blackjack, i.e. starting with an ace and ten (sum is 21).
+
+    <a id="sab">`sab=False`</a>: Whether to follow the exact rules outlined in the book by
+    Sutton and Barto. If `sab` is `True`, the keyword argument `natural` will be ignored.
+    If the player achieves a natural blackjack and the dealer does not, the player
+    will win (i.e. get a reward of +1). The reverse rule does not apply.
+    If both the player and the dealer get a natural, it will be a draw (i.e. reward 0).
+
+    ### Version History
+    * v0: Initial versions release (1.0.0)
     """
 
-    metadata = {"render.modes": ["human", "rgb_array"]}
+    metadata = {
+        "render_modes": ["human", "rgb_array", "single_rgb_array"],
+        "render_fps": 4,
+    }
 
-    def __init__(self, natural=False, sab=False):
+    def __init__(self, render_mode: Optional[str] = None, natural=False, sab=False):
         self.action_space = spaces.Discrete(2)
         self.observation_space = spaces.Tuple(
             (spaces.Discrete(32), spaces.Discrete(11), spaces.Discrete(2))
@@ -93,6 +128,10 @@ class BlackjackEnv(gym.Env):
 
         # Flag for full agreement with the (Sutton and Barto, 2018) definition. Overrides self.natural
         self.sab = sab
+
+        assert render_mode is None or render_mode in self.metadata["render_modes"]
+        self.render_mode = render_mode
+        self.renderer = Renderer(self.render_mode, self._render)
 
     def step(self, action):
         assert self.action_space.contains(action)
@@ -120,18 +159,47 @@ class BlackjackEnv(gym.Env):
             ):
                 # Natural gives extra points, but doesn't autowin. Legacy implementation
                 reward = 1.5
+
+        self.renderer.render_step()
         return self._get_obs(), reward, done, {}
 
     def _get_obs(self):
         return (sum_hand(self.player), self.dealer[0], usable_ace(self.player))
 
-    def reset(self, *, seed: Optional[int] = None, options: Optional[dict] = None):
+    def reset(
+        self,
+        seed: Optional[int] = None,
+        return_info: bool = False,
+        options: Optional[dict] = None,
+    ):
         super().reset(seed=seed)
         self.dealer = draw_hand(self.np_random)
         self.player = draw_hand(self.np_random)
-        return self._get_obs()
+
+        self.renderer.reset()
+        self.renderer.render_step()
+
+        if not return_info:
+            return self._get_obs()
+        else:
+            return self._get_obs(), {}
 
     def render(self, mode="human"):
+        if self.render_mode is not None:
+            return self.renderer.get_renders()
+        else:
+            return self._render(mode)
+
+    def _render(self, mode):
+        assert mode in self.metadata["render_modes"]
+
+        try:
+            import pygame
+        except ImportError:
+            raise DependencyNotInstalled(
+                "pygame is not installed, run `pip install gym[toy_text]`"
+            )
+
         player_sum, dealer_card_value, usable_ace = self._get_obs()
         screen_width, screen_height = 600, 500
         card_img_height = screen_height // 3
@@ -142,12 +210,16 @@ class BlackjackEnv(gym.Env):
         white = (255, 255, 255)
 
         if not hasattr(self, "screen"):
+            pygame.init()
             if mode == "human":
-                pygame.init()
+                pygame.display.init()
                 self.screen = pygame.display.set_mode((screen_width, screen_height))
             else:
                 pygame.font.init()
                 self.screen = pygame.Surface((screen_width, screen_height))
+
+        if not hasattr(self, "clock"):
+            self.clock = pygame.time.Clock()
 
         self.screen.fill(bg_color)
 
@@ -229,8 +301,20 @@ class BlackjackEnv(gym.Env):
                 ),
             )
         if mode == "human":
+            pygame.event.pump()
             pygame.display.update()
+            self.clock.tick(self.metadata["render_fps"])
         else:
             return np.transpose(
                 np.array(pygame.surfarray.pixels3d(self.screen)), axes=(1, 0, 2)
             )
+
+    def close(self):
+        if hasattr(self, "screen"):
+            import pygame
+
+            pygame.display.quit()
+            pygame.quit()
+
+
+# Pixel art from Mariia Khmelnytska (https://www.123rf.com/photo_104453049_stock-vector-pixel-art-playing-cards-standart-deck-vector-set.html)

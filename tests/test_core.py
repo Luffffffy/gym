@@ -1,13 +1,15 @@
 from typing import Optional
 
-import pytest
 import numpy as np
+import pytest
 
 from gym import core, spaces
-from gym.wrappers import TimeLimit, OrderEnforcing
+from gym.wrappers import OrderEnforcing, TimeLimit
 
 
 class ArgumentEnv(core.Env):
+    observation_space = spaces.Box(low=0, high=1, shape=(1,))
+    action_space = spaces.Box(low=0, high=1, shape=(1,))
     calls = 0
 
     def __init__(self, arg):
@@ -19,8 +21,16 @@ class UnittestEnv(core.Env):
     observation_space = spaces.Box(low=0, high=255, shape=(64, 64, 3), dtype=np.uint8)
     action_space = spaces.Discrete(3)
 
-    def reset(self, *, seed: Optional[int] = None, options: Optional[dict] = None):
+    def reset(
+        self,
+        *,
+        seed: Optional[int] = None,
+        return_info: bool = False,
+        options: Optional[dict] = None
+    ):
         super().reset(seed=seed)
+        if return_info:
+            return self.observation_space.sample(), {"info": "dummy"}
         return self.observation_space.sample()  # Dummy observation
 
     def step(self, action):
@@ -35,13 +45,22 @@ class UnknownSpacesEnv(core.Env):
     on external resources), it is not encouraged.
     """
 
-    def reset(self, *, seed: Optional[int] = None, options: Optional[dict] = None):
+    def reset(
+        self,
+        *,
+        seed: Optional[int] = None,
+        return_info: bool = False,
+        options: Optional[dict] = None
+    ):
         super().reset(seed=seed)
         self.observation_space = spaces.Box(
             low=0, high=255, shape=(64, 64, 3), dtype=np.uint8
         )
         self.action_space = spaces.Discrete(3)
-        return self.observation_space.sample()  # Dummy observation
+        if not return_info:
+            return self.observation_space.sample()  # Dummy observation
+        else:
+            return self.observation_space.sample(), {}  # Dummy observation with info
 
     def step(self, action):
         observation = self.observation_space.sample()  # Dummy observation
@@ -99,7 +118,7 @@ properties = [
     },
     {"action_space": spaces.Discrete(2)},
     {"reward_range": (-1.0, 1.0)},
-    {"metadata": {"render.modes": ["human", "rgb_array"]}},
+    {"metadata": {"render_modes": ["human", "rgb_array"]}},
     {
         "observation_space": spaces.Box(
             low=0.0, high=1.0, shape=(64, 64, 3), dtype=np.float32
