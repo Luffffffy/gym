@@ -20,6 +20,7 @@ import numpy as np
 
 import gym
 from gym import spaces
+from gym.envs.classic_control import utils
 from gym.error import DependencyNotInstalled
 from gym.utils.renderer import Renderer
 
@@ -83,11 +84,11 @@ class Continuous_MountainCarEnv(gym.Env):
     The position of the car is assigned a uniform random value in `[-0.6 , -0.4]`.
     The starting velocity of the car is always assigned to 0.
 
-    ### Episode Termination
+    ### Episode End
 
-    The episode terminates if either of the following happens:
-    1. The position of the car is greater than or equal to 0.45 (the goal position on top of the right hill)
-    2. The length of the episode is 999.
+    The episode ends if either of the following happens:
+    1. Termination: The position of the car is greater than or equal to 0.45 (the goal position on top of the right hill)
+    2. Truncation: The length of the episode is 999.
 
     ### Arguments
 
@@ -124,7 +125,6 @@ class Continuous_MountainCarEnv(gym.Env):
             [self.max_position, self.max_speed], dtype=np.float32
         )
 
-        assert render_mode is None or render_mode in self.metadata["render_modes"]
         self.render_mode = render_mode
         self.renderer = Renderer(self.render_mode, self._render)
 
@@ -161,17 +161,18 @@ class Continuous_MountainCarEnv(gym.Env):
             velocity = 0
 
         # Convert a possible numpy bool to a Python bool.
-        done = bool(position >= self.goal_position and velocity >= self.goal_velocity)
+        terminated = bool(
+            position >= self.goal_position and velocity >= self.goal_velocity
+        )
 
         reward = 0
-        if done:
+        if terminated:
             reward = 100.0
         reward -= math.pow(action[0], 2) * 0.1
 
         self.state = np.array([position, velocity], dtype=np.float32)
-
         self.renderer.render_step()
-        return self.state, reward, done, {}
+        return self.state, reward, terminated, False, {}
 
     def reset(
         self,
@@ -181,7 +182,10 @@ class Continuous_MountainCarEnv(gym.Env):
         options: Optional[dict] = None
     ):
         super().reset(seed=seed)
-        self.state = np.array([self.np_random.uniform(low=-0.6, high=-0.4), 0])
+        # Note that if you use custom reset bounds, it may lead to out-of-bound
+        # state/observations.
+        low, high = utils.maybe_parse_reset_bounds(options, -0.6, -0.4)
+        self.state = np.array([self.np_random.uniform(low=low, high=high), 0])
         self.renderer.reset()
         self.renderer.render_step()
         if not return_info:

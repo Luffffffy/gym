@@ -18,6 +18,16 @@ try:
 except ImportError:
     raise DependencyNotInstalled("box2D is not installed, run `pip install gym[box2d]`")
 
+try:
+    # As pygame is necessary for using the environment (reset and step) even without a render mode
+    #   therefore, pygame is a necessary import for the environment.
+    import pygame
+    from pygame import gfxdraw
+except ImportError:
+    raise DependencyNotInstalled(
+        "pygame is not installed, run `pip install gym[box2d]`"
+    )
+
 
 STATE_W = 96  # less than Atari 160x192
 STATE_H = 96
@@ -88,7 +98,7 @@ class FrictionDetector(contactListener):
                     and self.env.tile_visited_count / len(self.env.track)
                     > self.lap_complete_percent
                 ):
-                    self.env_new_lap = True
+                    self.env.new_lap = True
         else:
             obj.tiles.remove(tile)
 
@@ -110,8 +120,10 @@ class CarRacing(gym.Env, EzPickle):
     and turn at the same time.
 
     ### Action Space
-    There are 3 actions: steering (-1 is full left, +1 is full right), gas,
-    and breaking.
+    If continuous:
+        There are 3 actions: steering (-1 is full left, +1 is full right), gas, and breaking.
+    If discrete:
+        There are 5 actions: do nothing, steer left, steer right, gas, brake.
 
     ### Observation Space
     State consists of 96x96 pixels.
@@ -139,6 +151,24 @@ class CarRacing(gym.Env, EzPickle):
 
     Passing `continuous=False` converts the environment to use discrete action space.
     The discrete action space has 5 actions: [do nothing, left, right, gas, brake].
+
+    ### Reset Arguments
+    Passing the option `options["randomize"] = True` will change the current colour of the environment on demand.
+    Correspondingly, passing the option `options["randomize"] = False` will not change the current colour of the environment.
+    `domain_randomize` must be `True` on init for this argument to work.
+    Example usage:
+    ```py
+        env = gym.make("CarRacing-v1", domain_randomize=True)
+
+        # normal reset, this changes the colour scheme by default
+        env.reset()
+
+        # reset with colour scheme change
+        env.reset(options={"randomize": True})
+
+        # reset with no colour scheme change
+        env.reset(options={"randomize": False})
+    ```
 
     ### Version History
     - v1: Change track completion logic and add domain randomization (0.24.0)
@@ -177,14 +207,14 @@ class CarRacing(gym.Env, EzPickle):
 
         self.contactListener_keepref = FrictionDetector(self, lap_complete_percent)
         self.world = Box2D.b2World((0, 0), contactListener=self.contactListener_keepref)
-        self.screen = None
+        self.screen: Optional[pygame.Surface] = None
         self.surf = None
         self.clock = None
         self.isopen = True
         self.invisible_state_window = None
         self.invisible_video_window = None
         self.road = None
-        self.car = None
+        self.car: Optional[Car] = None
         self.reward = 0.0
         self.prev_reward = 0.0
         self.verbose = verbose
@@ -208,7 +238,6 @@ class CarRacing(gym.Env, EzPickle):
             low=0, high=255, shape=(STATE_H, STATE_W, 3), dtype=np.uint8
         )
 
-        assert render_mode is None or render_mode in self.metadata["render_modes"]
         self.render_mode = render_mode
         self.renderer = Renderer(self.render_mode, self._render)
 
@@ -218,6 +247,7 @@ class CarRacing(gym.Env, EzPickle):
         for t in self.road:
             self.world.DestroyBody(t)
         self.road = []
+        assert self.car is not None
         self.car.destroy()
 
     def _init_colors(self):
@@ -235,6 +265,21 @@ class CarRacing(gym.Env, EzPickle):
             self.road_color = np.array([102, 102, 102])
             self.bg_color = np.array([102, 204, 102])
             self.grass_color = np.array([102, 230, 102])
+
+    def _reinit_colors(self, randomize):
+        assert (
+            self.domain_randomize
+        ), "domain_randomize must be True to use this function."
+
+        if randomize:
+            # domain randomize the bg and grass colour
+            self.road_color = self.np_random.uniform(0, 210, size=3)
+
+            self.bg_color = self.np_random.uniform(0, 210, size=3)
+
+            self.grass_color = np.copy(self.bg_color)
+            idx = self.np_random.integers(3)
+            self.grass_color[idx] += 20
 
     def _create_track(self):
         CHECKPOINTS = 12
@@ -441,7 +486,14 @@ class CarRacing(gym.Env, EzPickle):
         self.t = 0.0
         self.new_lap = False
         self.road_poly = []
-        self._init_colors()
+
+        if self.domain_randomize:
+            randomize = True
+            if isinstance(options, dict):
+                if "randomize" in options:
+                    randomize = options["randomize"]
+
+            self._reinit_colors(randomize)
 
         while True:
             success = self._create_track()
@@ -461,6 +513,7 @@ class CarRacing(gym.Env, EzPickle):
             return self.step(None)[0], {}
 
     def step(self, action: Union[np.ndarray, int]):
+        assert self.car is not None
         if action is not None:
             if self.continuous:
                 self.car.steer(-action[0])
@@ -483,7 +536,8 @@ class CarRacing(gym.Env, EzPickle):
         self.state = self._render("single_state_pixels")
 
         step_reward = 0
-        done = False
+        terminated = False
+        truncated = False
         if action is not None:  # First step without action, called from reset()
             self.reward -= 0.1
             # We actually don't want to count fuel spent, we want car to be faster.
@@ -492,14 +546,17 @@ class CarRacing(gym.Env, EzPickle):
             step_reward = self.reward - self.prev_reward
             self.prev_reward = self.reward
             if self.tile_visited_count == len(self.track) or self.new_lap:
-                done = True
+                # Truncation due to finishing lap
+                # This should not be treated as a failure
+                # but like a timeout
+                truncated = True
             x, y = self.car.hull.position
             if abs(x) > PLAYFIELD or abs(y) > PLAYFIELD:
-                done = True
+                terminated = True
                 step_reward = -100
 
         self.renderer.render_step()
-        return self.state, step_reward, done, {}
+        return self.state, step_reward, terminated, truncated, {}
 
     def render(self, mode: str = "human"):
         if self.render_mode is not None:
@@ -509,15 +566,8 @@ class CarRacing(gym.Env, EzPickle):
 
     def _render(self, mode: str = "human"):
         assert mode in self.metadata["render_modes"]
-        try:
-            import pygame
-        except ImportError:
-            raise DependencyNotInstalled(
-                "pygame is not installed, run `pip install gym[box2d]`"
-            )
 
         pygame.font.init()
-
         if self.screen is None and mode == "human":
             pygame.init()
             pygame.display.init()
@@ -530,6 +580,7 @@ class CarRacing(gym.Env, EzPickle):
 
         self.surf = pygame.Surface((WINDOW_W, WINDOW_H))
 
+        assert self.car is not None
         # computing transformations
         angle = -self.car.hull.angle
         # Animating first second zoom.
@@ -562,6 +613,7 @@ class CarRacing(gym.Env, EzPickle):
         if mode == "human":
             pygame.event.pump()
             self.clock.tick(self.metadata["render_fps"])
+            assert self.screen is not None
             self.screen.fill(0)
             self.screen.blit(self.surf, (0, 0))
             pygame.display.flip()
@@ -612,8 +664,6 @@ class CarRacing(gym.Env, EzPickle):
             self._draw_colored_polygon(self.surf, poly, color, zoom, translation, angle)
 
     def _render_indicators(self, W, H):
-        import pygame
-
         s = W / 40.0
         h = H / 40.0
         color = (0, 0, 0)
@@ -636,6 +686,7 @@ class CarRacing(gym.Env, EzPickle):
                 ((place + 0) * s, H - 2 * h),
             ]
 
+        assert self.car is not None
         true_speed = np.sqrt(
             np.square(self.car.hull.linearVelocity[0])
             + np.square(self.car.hull.linearVelocity[1])
@@ -683,9 +734,6 @@ class CarRacing(gym.Env, EzPickle):
     def _draw_colored_polygon(
         self, surface, poly, color, zoom, translation, angle, clip=True
     ):
-        import pygame
-        from pygame import gfxdraw
-
         poly = [pygame.math.Vector2(c).rotate_rad(angle) for c in poly]
         poly = [
             (c[0] * zoom + translation[0], c[1] * zoom + translation[1]) for c in poly
@@ -704,8 +752,6 @@ class CarRacing(gym.Env, EzPickle):
             gfxdraw.filled_polygon(self.surf, poly, color)
 
     def _create_image_array(self, screen, size):
-        import pygame
-
         scaled_screen = pygame.transform.smoothscale(screen, size)
         return np.transpose(
             np.array(pygame.surfarray.pixels3d(scaled_screen)), axes=(1, 0, 2)
@@ -713,8 +759,6 @@ class CarRacing(gym.Env, EzPickle):
 
     def close(self):
         if self.screen is not None:
-            import pygame
-
             pygame.display.quit()
             self.isopen = False
             pygame.quit()
@@ -722,7 +766,6 @@ class CarRacing(gym.Env, EzPickle):
 
 if __name__ == "__main__":
     a = np.array([0.0, 0.0, 0.0])
-    import pygame
 
     def register_input():
         for event in pygame.event.get():
@@ -760,13 +803,13 @@ if __name__ == "__main__":
         restart = False
         while True:
             register_input()
-            s, r, done, info = env.step(a)
+            s, r, terminated, truncated, info = env.step(a)
             total_reward += r
-            if steps % 200 == 0 or done:
+            if steps % 200 == 0 or terminated or truncated:
                 print("\naction " + str([f"{x:+0.2f}" for x in a]))
                 print(f"step {steps} total_reward {total_reward:+0.2f}")
             steps += 1
             isopen = env.render()
-            if done or restart or isopen is False:
+            if terminated or truncated or restart or isopen is False:
                 break
     env.close()

@@ -9,6 +9,7 @@ import numpy as np
 
 import gym
 from gym import spaces
+from gym.envs.classic_control import utils
 from gym.error import DependencyNotInstalled
 from gym.utils.renderer import Renderer
 
@@ -77,11 +78,11 @@ class MountainCarEnv(gym.Env):
     The position of the car is assigned a uniform random value in *[-0.6 , -0.4]*.
     The starting velocity of the car is always assigned to 0.
 
-    ### Episode Termination
+    ### Episode End
 
-    The episode terminates if either of the following happens:
-    1. The position of the car is greater than or equal to 0.5 (the goal position on top of the right hill)
-    2. The length of the episode is 200.
+    The episode ends if either of the following happens:
+    1. Termination: The position of the car is greater than or equal to 0.5 (the goal position on top of the right hill)
+    2. Truncation: The length of the episode is 200.
 
 
     ### Arguments
@@ -113,7 +114,6 @@ class MountainCarEnv(gym.Env):
         self.low = np.array([self.min_position, -self.max_speed], dtype=np.float32)
         self.high = np.array([self.max_position, self.max_speed], dtype=np.float32)
 
-        assert render_mode is None or render_mode in self.metadata["render_modes"]
         self.render_mode = render_mode
         self.renderer = Renderer(self.render_mode, self._render)
 
@@ -139,13 +139,14 @@ class MountainCarEnv(gym.Env):
         if position == self.min_position and velocity < 0:
             velocity = 0
 
-        done = bool(position >= self.goal_position and velocity >= self.goal_velocity)
+        terminated = bool(
+            position >= self.goal_position and velocity >= self.goal_velocity
+        )
         reward = -1.0
 
         self.state = (position, velocity)
-
         self.renderer.render_step()
-        return np.array(self.state, dtype=np.float32), reward, done, {}
+        return np.array(self.state, dtype=np.float32), reward, terminated, False, {}
 
     def reset(
         self,
@@ -155,7 +156,10 @@ class MountainCarEnv(gym.Env):
         options: Optional[dict] = None,
     ):
         super().reset(seed=seed)
-        self.state = np.array([self.np_random.uniform(low=-0.6, high=-0.4), 0])
+        # Note that if you use custom reset bounds, it may lead to out-of-bound
+        # state/observations.
+        low, high = utils.maybe_parse_reset_bounds(options, -0.6, -0.4)
+        self.state = np.array([self.np_random.uniform(low=low, high=high), 0])
         self.renderer.reset()
         self.renderer.render_step()
         if not return_info:
