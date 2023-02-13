@@ -13,14 +13,14 @@ with open("gym/version.py") as file:
 
 # Environment-specific dependencies.
 extras = {
-    "atari": ["ale-py~=0.7.5"],
+    "atari": ["ale-py~=0.8.0"],
     "accept-rom-license": ["autorom[accept-rom-license]~=0.4.2"],
     "box2d": ["box2d-py==2.3.5", "pygame==2.1.0", "swig==4.*"],
     "classic_control": ["pygame==2.1.0"],
     "mujoco_py": ["mujoco_py<2.2,>=2.1"],
-    "mujoco": ["mujoco==2.2.0", "imageio>=2.14.1"],
+    "mujoco": ["mujoco==2.2", "imageio>=2.14.1"],
     "toy_text": ["pygame==2.1.0"],
-    "other": ["lz4>=3.1.0", "opencv-python>=3.0", "matplotlib>=3.0"],
+    "other": ["lz4>=3.1.0", "opencv-python>=3.0", "matplotlib>=3.0", "moviepy>=1.0.0"],
 }
 
 # Testing dependency groups.
@@ -84,7 +84,7 @@ setup(
     },
     python_requires=">=3.6",
     tests_require=extras["testing"],
-    url="https://www.gymlibrary.ml/",
+    url="https://www.gymlibrary.dev/",
     version=VERSION,
     zip_safe=False,
 )

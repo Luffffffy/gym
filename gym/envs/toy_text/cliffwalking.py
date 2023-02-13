@@ -5,9 +5,9 @@ from typing import Optional
 
 import numpy as np
 
-from gym import Env, spaces
+from gym import Env, logger, spaces
 from gym.envs.toy_text.utils import categorical_sample
-from gym.utils.renderer import Renderer
+from gym.error import DependencyNotInstalled
 
 UP = 0
 RIGHT = 1
@@ -62,7 +62,10 @@ class CliffWalkingEnv(Env):
     - v0: Initial version release
     """
 
-    metadata = {"render_modes": ["human", "rgb_array", "ansi"], "render_fps": 4}
+    metadata = {
+        "render_modes": ["human", "rgb_array", "ansi"],
+        "render_fps": 4,
+    }
 
     def __init__(self, render_mode: Optional[str] = None):
         self.shape = (4, 12)
@@ -94,7 +97,6 @@ class CliffWalkingEnv(Env):
         self.action_space = spaces.Discrete(self.nA)
 
         self.render_mode = render_mode
-        self.renderer = Renderer(self.render_mode, self._render)
 
         # pygame utils
         self.cell_size = (60, 60)
@@ -146,46 +148,45 @@ class CliffWalkingEnv(Env):
         p, s, r, t = transitions[i]
         self.s = s
         self.lastaction = a
-        self.renderer.render_step()
+
+        if self.render_mode == "human":
+            self.render()
         return (int(s), r, t, False, {"prob": p})
 
-    def reset(
-        self,
-        *,
-        seed: Optional[int] = None,
-        return_info: bool = False,
-        options: Optional[dict] = None
-    ):
+    def reset(self, *, seed: Optional[int] = None, options: Optional[dict] = None):
         super().reset(seed=seed)
         self.s = categorical_sample(self.initial_state_distrib, self.np_random)
         self.lastaction = None
-        self.renderer.reset()
-        self.renderer.render_step()
-        if not return_info:
-            return int(self.s)
-        else:
-            return int(self.s), {"prob": 1}
 
-    def render(self, mode="human"):
-        if self.render_mode is not None:
-            return self.renderer.get_renders()
-        else:
-            return self._render(mode)
+        if self.render_mode == "human":
+            self.render()
+        return int(self.s), {"prob": 1}
 
-    def _render(self, mode="human"):
-        if mode == "ansi":
+    def render(self):
+        if self.render_mode is None:
+            logger.warn(
+                "You are calling render method without specifying any render mode. "
+                "You can specify the render_mode at initialization, "
+                f'e.g. gym("{self.spec.id}", render_mode="rgb_array")'
+            )
+        elif self.render_mode == "ansi":
             return self._render_text()
         else:
-            return self._render_gui(mode)
+            return self._render_gui(self.render_mode)
 
     def _render_gui(self, mode):
-        import pygame
-
+        try:
+            import pygame
+        except ImportError:
+            raise DependencyNotInstalled(
+                "pygame is not installed, run `pip install gym[toy_text]`"
+            )
         if self.window_surface is None:
             pygame.init()
-            pygame.display.init()
-            pygame.display.set_caption("CliffWalking")
+
             if mode == "human":
+                pygame.display.init()
+                pygame.display.set_caption("CliffWalking")
                 self.window_surface = pygame.display.set_mode(self.window_size)
             else:  # rgb_array
                 self.window_surface = pygame.Surface(self.window_size)

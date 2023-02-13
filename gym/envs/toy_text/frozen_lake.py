@@ -5,10 +5,9 @@ from typing import List, Optional
 
 import numpy as np
 
-from gym import Env, spaces, utils
+from gym import Env, logger, spaces, utils
 from gym.envs.toy_text.utils import categorical_sample
 from gym.error import DependencyNotInstalled
-from gym.utils.renderer import Renderer
 
 LEFT = 0
 DOWN = 1
@@ -156,7 +155,7 @@ class FrozenLakeEnv(Env):
     """
 
     metadata = {
-        "render_modes": ["human", "ansi", "rgb_array", "single_rgb_array"],
+        "render_modes": ["human", "ansi", "rgb_array"],
         "render_fps": 4,
     }
 
@@ -226,7 +225,6 @@ class FrozenLakeEnv(Env):
         self.action_space = spaces.Discrete(nA)
 
         self.render_mode = render_mode
-        self.renderer = Renderer(self.render_mode, self._render)
 
         # pygame utils
         self.window_size = (min(64 * ncol, 512), min(64 * nrow, 512))
@@ -249,40 +247,36 @@ class FrozenLakeEnv(Env):
         p, s, r, t = transitions[i]
         self.s = s
         self.lastaction = a
-        self.renderer.render_step()
+
+        if self.render_mode == "human":
+            self.render()
         return (int(s), r, t, False, {"prob": p})
 
     def reset(
         self,
         *,
         seed: Optional[int] = None,
-        return_info: bool = False,
         options: Optional[dict] = None,
     ):
         super().reset(seed=seed)
         self.s = categorical_sample(self.initial_state_distrib, self.np_random)
         self.lastaction = None
 
-        self.renderer.reset()
-        self.renderer.render_step()
+        if self.render_mode == "human":
+            self.render()
+        return int(self.s), {"prob": 1}
 
-        if not return_info:
-            return int(self.s)
-        else:
-            return int(self.s), {"prob": 1}
-
-    def render(self, mode="human"):
-        if self.render_mode is not None:
-            return self.renderer.get_renders()
-        else:
-            return self._render(mode)
-
-    def _render(self, mode="human"):
-        assert mode in self.metadata["render_modes"]
-        if mode == "ansi":
+    def render(self):
+        if self.render_mode is None:
+            logger.warn(
+                "You are calling render method without specifying any render mode. "
+                "You can specify the render_mode at initialization, "
+                f'e.g. gym("{self.spec.id}", render_mode="rgb_array")'
+            )
+        elif self.render_mode == "ansi":
             return self._render_text()
-        elif mode in {"human", "rgb_array", "single_rgb_array"}:
-            return self._render_gui(mode)
+        else:  # self.render_mode in {"human", "rgb_array"}:
+            return self._render_gui(self.render_mode)
 
     def _render_gui(self, mode):
         try:
@@ -294,11 +288,12 @@ class FrozenLakeEnv(Env):
 
         if self.window_surface is None:
             pygame.init()
-            pygame.display.init()
-            pygame.display.set_caption("Frozen Lake")
+
             if mode == "human":
+                pygame.display.init()
+                pygame.display.set_caption("Frozen Lake")
                 self.window_surface = pygame.display.set_mode(self.window_size)
-            elif mode in {"rgb_array", "single_rgb_array"}:
+            elif mode == "rgb_array":
                 self.window_surface = pygame.Surface(self.window_size)
 
         assert (
@@ -376,7 +371,7 @@ class FrozenLakeEnv(Env):
             pygame.event.pump()
             pygame.display.update()
             self.clock.tick(self.metadata["render_fps"])
-        elif mode in {"rgb_array", "single_rgb_array"}:
+        elif mode == "rgb_array":
             return np.transpose(
                 np.array(pygame.surfarray.pixels3d(self.window_surface)), axes=(1, 0, 2)
             )

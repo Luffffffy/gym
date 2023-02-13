@@ -183,8 +183,6 @@ class HumanoidStandupEnv(MujocoEnv, utils.EzPickle):
             "human",
             "rgb_array",
             "depth_array",
-            "single_rgb_array",
-            "single_depth_array",
         ],
         "render_fps": 67,
     }
@@ -200,7 +198,7 @@ class HumanoidStandupEnv(MujocoEnv, utils.EzPickle):
             observation_space=observation_space,
             **kwargs
         )
-        utils.EzPickle.__init__(self)
+        utils.EzPickle.__init__(self, **kwargs)
 
     def _get_obs(self):
         data = self.data
@@ -226,8 +224,8 @@ class HumanoidStandupEnv(MujocoEnv, utils.EzPickle):
         quad_impact_cost = min(quad_impact_cost, 10)
         reward = uph_cost - quad_ctrl_cost - quad_impact_cost + 1
 
-        self.renderer.render_step()
-
+        if self.render_mode == "human":
+            self.render()
         return (
             self._get_obs(),
             reward,
